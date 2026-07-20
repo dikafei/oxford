@@ -1,0 +1,71 @@
+# Ignore everything
+/*
+
+# Allow required root files/folders
+!.gitignore
+!readme.md
+!.github/
+!.github/**
+
+# Allow wp-content
+!wp-content/
+
+# Ignore everything inside wp-content
+wp-content/*
+
+# Allow themes and plugins directories
+!wp-content/themes/
+!wp-content/plugins/
+
+# Ignore everything inside them
+wp-content/themes/*
+wp-content/plugins/*
+
+# Track only these
+!wp-content/themes/astra-child/
+!wp-content/themes/astra-child/**
+
+!wp-content/plugins/atg-oxford-helper/
+!wp-content/plugins/atg-oxford-helper/**
+
+# Ignore uploads
+wp-content/uploads/
+
+# Ignore all dist folders everywhere
+**/dist/
+
+# macOS metadata
+.DS_Store
+
+# VS Code settings and workspace files
+.vscode/
+*.code-workspace
+
+# Common OS/IDE clutter
+Thumbs.db
+ehthumbs.db
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Node / build artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Composer vendor directory
+vendor/
+
+# Logs / temp files
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+
+# Environment files
+.env
+.env.*

@@ -1,0 +1,183 @@
+/* .flatpickr-calendar {
+    z-index: 9999999 !important;
+    position: fixed !important;
+} */
+.month-hint {
+    font-size: 12px;
+    color: #666;
+    margin-top: 5px;
+}
+.custom-datepicker-input {
+    background-color: #fff !important;
+    cursor: pointer !important;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    height: 40px;
+    box-sizing: border-box;
+}
+
+
+
+
+/* body .flatpickr-calendar {
+    width: 240px !important;
+}
+body .flatpickr-calendar.animate.arrowTop.arrowLeft.open {
+    height: 280px!important;
+	top: 450px !important;
+}
+body .flatpickr-calendar .flatpickr-innerContainer {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    padding: 0px 0px!important;
+	margin-top: 0px!important;
+}
+
+body .flatpickr-weekdays {
+    width: 100% !important;
+}
+body .flatpickr-calendar .flatpickr-months {
+    width: 100% !important;
+}
+
+body .flatpickr-days {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0px 0px!important;
+}
+body .dayContainer {
+    width: 100% !important;
+    max-width: 100%!important;
+    min-width: 100% !important;
+}
+body span.flatpickr-day
+ {
+    max-width: 34px !important;
+    height: 34px !important;
+}
+
+
+
+
+
+.dayContainer span.flatpickr-day:hover {
+    background: #b2d5ff !important;
+    color: #000000 !important;
+}
+.dayContainer span.flatpickr-day.selected {
+    background: #0075ff;
+}
+.flatpickr-current-month {
+    display: block!important;
+}
+.flatpickr-months .flatpickr-next-month svg {
+    rotate: 0deg !important;
+}
+.flatpickr-current-month {
+    padding: 12px 0 0!important;
+}
+.flatpickr-months .flatpickr-next-month:hover, .flatpickr-months .flatpickr-prev-month:hover {
+    filter: brightness(0)!important;
+} */
+.jetform-datepicker-container {
+    cursor: pointer;
+}
+.jet-form-builder__field.date-select {
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    height: 40px;
+    padding: 8px;
+    margin-top: 5px;
+}
+.room_main {
+    gap: 20px;
+}
+.room_main h3 {
+    display: none;
+}
+/*body .wp-block-columns.room_main.is-layout-flex.wp-container-core-columns-is-layout-28f84493.wp-block-columns-is-layout-flex.additional-room,*/
+body .wp-block-columns.passangerfields.is-layout-flex.wp-container-core-columns-is-layout-28f84493.wp-block-columns-is-layout-flex {
+    flex-wrap: wrap !important;
+}
+body .wp-block-columns.passangerfields.is-layout-flex.wp-container-core-columns-is-layout-28f84493.wp-block-columns-is-layout-flex{
+    display: block !important;
+}
+/*.additional-room .wp-block-column.is-layout-flow.wp-block-column-is-layout-flow {
+    flex-basis: 25% !important;
+}
+.additional-room .wp-block-column.is-layout-flow.wp-block-column-is-layout-flow:nth-child(3) {
+    flex-basis: 43% !important;
+}*/
+.passenger-section {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    margin-bottom: 10px;
+}
+.passenger-section .jet-form-col {
+    flex: 0 calc(33.33% - 13px);
+}
+.gap20{
+    gap: 20px !important;
+}
+.formtitle{
+    display: none;
+}
+
+.jet-form-builder-page .field-error{
+    border-color: red !important;
+}
+
+.jet-form-builder-page .jet-form-builder__submit{
+    margin-left: 6px !important;
+}
+
+div.dialog-widget-content{
+    overflow: scroll;
+}
+
+/* pushed it a little bit up so it doesn't shows enough gap */
+.flatpickr-calendar {
+    margin-top: -25px;
+  }
+
+#full_address.jet-form-builder__field.textarea-field{
+    min-height: 200px !important;
+    resize: vertical;
+}
+
+.lead_phone_column .jet-form-builder__field-wrap::before {
+    content: "+";
+    display: inline-block;
+    font-size: 22px;
+    margin-right: 5px;
+}
+
+.lead_phone_column .jet-form-builder__field-wrap {
+    display: flex;
+    align-items: center;
+}
+
+.custom-block-review-page{
+    border: 1px solid #ddd;
+    border-radius: 5px !important;
+    padding: 15px;
+    background: #f9f9f9;
+}
+
+.custom-deposit-field #deposit{
+    display: none;
+}
+
+.additionalfields .additional-room{
+    flex-wrap: wrap !important;
+}
+
+.additionalfields .additional-room .additional-room-details-container{
+    display: flex;
+    gap: 20px;
+    width: 100%;
+}

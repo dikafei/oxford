@@ -1,0 +1,446 @@
+/**
+ * Tour Data Reader - Vanilla JavaScript
+ * Reads post_id and page_name from tour pages
+ * 
+ * @package ATG Oxford Helper
+ * @since 1.0.1
+ */
+
+(function() {
+    'use strict';
+
+    /**
+     * Tour Data Handler Object
+     */
+    const TourDataReader = {
+
+        /**
+         * Initialize the tour data reader
+         */
+        init: function() {
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', this.handleTourData.bind(this));
+            } else {
+                this.handleTourData();
+            }
+        },
+
+        /**
+         * Check if tour data exists and handle it
+         */
+        handleTourData: function() {
+            // Check if tour data is available
+            if (typeof window.atg_tour_data !== 'undefined' && window.atg_tour_data) {
+                this.processTourData(window.atg_tour_data);
+            } else {
+                this.logMessage('No tour data found - not a tour page or data not loaded');
+            }
+        },
+
+        /**
+         * Process the tour data
+         * @param {Object} tourData - The tour data object
+         */
+        processTourData: function(tourData) {
+            const postId = tourData.post_id;
+            const pageName = tourData.page_name;
+            const isEscorted = tourData.is_escorted || false;
+
+            // Base data object
+            const processedData = {
+                postId: postId,
+                pageName: pageName,
+                isEscorted: isEscorted
+            };
+
+            // Add pricing data if tour is escorted
+            if (isEscorted && tourData.pricing_double !== undefined) {
+                processedData.pricing = {
+                    double: parseInt(tourData.pricing_double) || 0,
+                    singleOccupancy: parseInt(tourData.pricing_single_occupancy) || 0,
+                    twin: parseInt(tourData.pricing_twin) || 0
+                };
+            }
+
+            // Log the data (remove in production if needed)
+            this.logMessage('Tour Data Found:', processedData);
+
+            // Store data for external access
+            this.tourData = processedData;
+
+            // Trigger custom events for other scripts to listen to
+            this.triggerTourDataEvent(processedData);
+
+            // Call custom handler (you can modify this)
+            this.customTourDataHandler(processedData);
+        },
+
+        /**
+         * Custom handler for tour data - modify this for your needs
+         * @param {Object} tourData - The complete tour data object
+         */
+        customTourDataHandler: function(tourData) {
+            const { postId, pageName, isEscorted, pricing } = tourData;
+
+            // Example: Add tour classes and attributes to body
+            if (document.body) {
+                document.body.classList.add('tour-id-' + postId);
+                document.body.setAttribute('data-tour-name', pageName);
+                document.body.setAttribute('data-tour-escorted', isEscorted ? 'true' : 'false');
+                
+                if (isEscorted) {
+                    document.body.classList.add('tour-escorted');
+                } else {
+                    document.body.classList.add('tour-independent');
+                }
+            }
+
+            // Example: Store in sessionStorage for other pages
+            if (typeof Storage !== 'undefined') {
+                sessionStorage.setItem('current_tour_id', postId);
+                sessionStorage.setItem('current_tour_name', pageName);
+                sessionStorage.setItem('current_tour_escorted', isEscorted ? 'true' : 'false');
+                
+                if (isEscorted && pricing) {
+                    sessionStorage.setItem('current_tour_pricing', JSON.stringify(pricing));
+                }
+            }
+
+            // Add your custom logic here
+            // Examples:
+            // - Send analytics tracking with tour type
+            // - Update form fields with pricing
+            // - Show/hide pricing elements based on isEscorted
+            // - API calls with tour ID and type
+
+            // Call the custom user code block
+            this.executeCustomCode(tourData);
+        },
+
+        /**
+         * ========================================
+         * CUSTOM CODE BLOCK - ADD YOUR CODE HERE
+         * ========================================
+         *
+         * This is where you can add your custom JavaScript code.
+         * The tourData object contains all tour information:
+         * - tourData.postId (number)
+         * - tourData.pageName (string)
+         * - tourData.isEscorted (boolean)
+         * - tourData.pricing (object, only if escorted)
+         *   - tourData.pricing.double (number)
+         *   - tourData.pricing.singleOccupancy (number)
+         *   - tourData.pricing.twin (number)
+         */
+        executeCustomCode: function(tourData) {
+            // =============================================
+            // YOUR CUSTOM JAVASCRIPT CODE GOES HERE
+            // =============================================
+            
+            // Example: Log tour information to console
+            // console.log('Custom Code Block - Tour Data:', tourData);
+            
+            if (tourData.isEscorted) {
+                // Update window.tripData with correct pricing so jetform-enhancement.js uses correct values
+                if (typeof window.tripData !== 'undefined' && window.tripData) {
+                    window.tripData.tripOptions = [{
+                        double_room: tourData.pricing.double,
+                        single_occupancy: tourData.pricing.singleOccupancy,
+                        twin_room: tourData.pricing.twin,
+                        trip_duration_label: "default_trip"
+                    }];
+                    window.tripData.tripMap = { "default_trip": 0 };
+                }
+
+                const selectRoom = document.querySelector('select[name="select_room"]');
+                if (selectRoom) {
+                    selectRoom.innerHTML = `
+                        <option value="SelectRoom">Select Room</option>
+                        <option value="0_double_room" data-price="${tourData.pricing.double}" data-room-type="double_room">Double Room - £${tourData.pricing.double}</option>
+                        <option value="0_twin_room" data-price="${tourData.pricing.twin}" data-room-type="twin_room">Twin Room - £${tourData.pricing.twin}</option>
+                        <option value="0_single_occupancy" data-price="${tourData.pricing.singleOccupancy}" data-room-type="single_occupancy">Single Occupancy - £${tourData.pricing.singleOccupancy}</option>
+                    `;
+                }
+            }
+            
+            
+            // ==============================================
+            // END OF CUSTOM CODE BLOCK
+            // ==============================================
+        },
+
+        /**
+         * Trigger custom event with tour data
+         * @param {Object} tourData - The complete tour data object
+         */
+        triggerTourDataEvent: function(tourData) {
+            const event = new CustomEvent('tourDataLoaded', {
+                detail: tourData
+            });
+            document.dispatchEvent(event);
+        },
+
+        /**
+         * Get stored tour data (public method)
+         * @returns {Object|null} Tour data or null if not available
+         */
+        getTourData: function() {
+            return this.tourData || null;
+        },
+
+        /**
+         * Get post ID (public method)
+         * @returns {number|null} Post ID or null if not available
+         */
+        getPostId: function() {
+            return this.tourData ? this.tourData.postId : null;
+        },
+
+        /**
+         * Get page name (public method)
+         * @returns {string|null} Page name or null if not available
+         */
+        getPageName: function() {
+            return this.tourData ? this.tourData.pageName : null;
+        },
+
+        /**
+         * Check if tour is escorted (public method)
+         * @returns {boolean} True if escorted, false if independent or not available
+         */
+        isEscorted: function() {
+            return this.tourData ? this.tourData.isEscorted : false;
+        },
+
+        /**
+         * Get pricing data (public method)
+         * @returns {Object|null} Pricing object or null if not available
+         */
+        getPricing: function() {
+            return (this.tourData && this.tourData.pricing) ? this.tourData.pricing : null;
+        },
+
+        /**
+         * Get specific pricing value (public method)
+         * @param {string} type - Pricing type: 'double', 'singleOccupancy', or 'twin'
+         * @returns {number|null} Price or null if not available
+         */
+        getPrice: function(type) {
+            const pricing = this.getPricing();
+            return pricing && pricing[type] !== undefined ? pricing[type] : null;
+        },
+
+        /**
+         * Log message to console (only if console exists)
+         * @param {string} message - Message to log
+         * @param {*} data - Optional data to log
+         */
+        logMessage: function(message, data) {
+            if (typeof console !== 'undefined' && console.log) {
+                if (data) {
+                    // console.log('[Tour Data Reader] ' + message, data);
+                } else {
+                    // console.log('[Tour Data Reader] ' + message);
+                }
+            }
+        }
+    };
+
+    /**
+     * Make TourDataReader globally accessible
+     */
+    window.TourDataReader = TourDataReader;
+
+    /**
+     * Auto-initialize
+     */
+    TourDataReader.init();
+
+    /**
+     * Example of how to listen for the custom event from other scripts:
+     *
+     * document.addEventListener('tourDataLoaded', function(e) {
+     *     console.log('Tour ID:', e.detail.postId);
+     *     console.log('Tour Name:', e.detail.pageName);
+     *     console.log('Is Escorted:', e.detail.isEscorted);
+     *
+     *     if (e.detail.isEscorted && e.detail.pricing) {
+     *         console.log('Double Room:', e.detail.pricing.double);
+     *         console.log('Single Occupancy:', e.detail.pricing.singleOccupancy);
+     *         console.log('Twin Room:', e.detail.pricing.twin);
+     *     }
+     * });
+     *
+     * // Example usage of public methods:
+     * var tourData = TourDataReader.getTourData();
+     * var isEscorted = TourDataReader.isEscorted();
+     * var pricing = TourDataReader.getPricing();
+     * var doublePrice = TourDataReader.getPrice('double');
+     */
+
+})();
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if the query string contains the "status" variable
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('status')) {
+        setTimeout(function() {
+            // Find the first button with href containing "popup"
+            const popupButton = document.querySelector('a.elementor-button[href*="popup"]');
+            if (popupButton) {
+                // Trigger a click on the button
+                popupButton.click();
+				// console.log("Popup Clicked");
+            }
+
+            // Hide the form with class "jet-form-builder"
+            const form = document.querySelector('form.jet-form-builder');
+            if (form) {
+                form.style.display = 'none';
+            }
+            const statusValue = urlParams.get('status');
+            const successMessageDiv = document.querySelector('div.jet-form-builder-message.jet-form-builder-message--success');
+            if (successMessageDiv) {
+                successMessageDiv.innerHTML = statusValue.replace(/^dsuccess\|/, '');
+            }
+        }, 5000); // Delay of 5 seconds
+		
+		
+    }
+	
+    // Add an event listener for clicks on the div with class "customize_button"
+    const customizeButton = document.querySelector('div.customize_button');
+    if (customizeButton) {
+        customizeButton.addEventListener('click', function() {
+        setTimeout(function() {
+            const itineraryButton = document.querySelector('.jet-form-builder__field-wrap input');
+            if (itineraryButton) {
+                itineraryButton.setAttribute('onKeydown', 'populate_hotels()');
+                itineraryButton.setAttribute('onChange', 'populate_hotels()');
+            }
+        }, 500);
+        });
+    }
+});
+
+
+
+function populate_hotels(){
+    setTimeout(function() {
+        // Find the div with class "hotel_list_json"
+        const hotelListDiv = document.querySelector('div.hotel_list_json');
+        if (hotelListDiv) {
+            // Get the contents of the div and parse it as JSON
+            const hotelData = JSON.parse(hotelListDiv.textContent || '[]');
+			// console.log("Hotel Data is :", hotelData);
+			
+			
+            // Find the select element with name containing "hotel_location" that does not have "processed" class
+               // 🔹 Select all hotel_location fields that are not processed yet
+            const locationSelects = document.querySelectorAll('select[name*="[hotel_location]"]:not(.processed)');
+            const hotelSelects = document.querySelectorAll('select[name*="[hotel_name]"]:not(.processed)');
+
+            locationSelects.forEach((hotelSelect, index) => {
+                const hotelSelect2 = hotelSelects[index]; // pair by index (same repeater row)
+
+                if (!hotelSelect || !hotelSelect2) return;
+
+                // ---- populate locations
+                const seen = new Set();
+                hotelData.forEach(hotel => {
+                    let [a, b] = hotel.split("|");
+                    if (!a || !b) return;
+                    b = b.trim();
+                    if (seen.has(b)) return;
+                    seen.add(b);
+
+                    const option = document.createElement('option');
+                    option.value = b;
+                    option.textContent = b;
+                    hotelSelect.appendChild(option);
+                });
+
+                // ---- prepare hotel select
+                hotelSelect2.innerHTML = "";
+                const placeholder = document.createElement('option');
+                placeholder.value = "";
+                placeholder.textContent = "Select hotel";
+                hotelSelect2.appendChild(placeholder);
+
+                // ---- event listener for location → filter hotels
+                hotelSelect.addEventListener('change', () => {
+                    const selectedLocation = hotelSelect.value;
+                    hotelSelect2.innerHTML = "";
+
+                    const placeholder = document.createElement('option');
+                    placeholder.value = "";
+                    placeholder.textContent = "Select hotel";
+                    hotelSelect2.appendChild(placeholder);
+
+                    const seenHotels = new Set();
+                    hotelData.forEach(hotel => {
+                        let [a, b] = hotel.split("|");
+                        if (!a || !b) return;
+                        a = a.trim();
+                        b = b.trim();
+
+                        if (b === selectedLocation && !seenHotels.has(a)) {
+                            seenHotels.add(a);
+                            const option = document.createElement('option');
+                            option.value = a;
+                            option.textContent = a;
+                            hotelSelect2.appendChild(option);
+                        }
+                    });
+                    hotelSelect2.selectedIndex = 0;
+                });
+
+                // ---- cleanup empty/whitespace options
+                [hotelSelect, hotelSelect2].forEach(select => {
+                    Array.from(select.options).forEach(opt => {
+                        if (!opt.value.trim() && !opt.textContent.trim()) {
+                            opt.remove();
+                        }
+                    });
+                    select.selectedIndex = -1;
+                });
+
+                // mark processed so same select is not re-processed
+                hotelSelect.classList.add('processed');
+                hotelSelect2.classList.add('processed');
+            });
+        }
+
+        let mapRoomTypeToNumOfPeople = {
+            'single'    : 1,
+            'double'    : 2,
+            'twin'      : 2
+        };
+        document.querySelectorAll('select[name^="Itinerary["][name$="[roomType1]"]').forEach(select => {
+            select.addEventListener('change', e => {
+                const parentRow = e.target.closest('.jet-form-builder-repeater__row');
+                if (!parentRow) return;
+                const numPeopleInput = parentRow.querySelector('input[data-field-name="numPeople1"]');
+                if (numPeopleInput) {
+                    numPeopleInput.value = mapRoomTypeToNumOfPeople[e.target.value];
+                    const hiddenInputField = parentRow.querySelector('input.hiddenForOnePassenger');
+                    const hiddenInputWrapper = hiddenInputField.closest('.wp-block-column');
+                    if(hiddenInputWrapper){
+                        hiddenInputWrapper.style.display = mapRoomTypeToNumOfPeople[e.target.value] > 1 ? 'block' : 'none';
+                    }
+                    numPeopleInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    numPeopleInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            });
+        });
+
+        document.querySelectorAll('input.hiddenForOnePassenger').forEach(input => {
+            const parent = input.closest('.wp-block-column');
+            if(parent){
+                parent.style.display = 'none';
+            }
+        });
+
+    }, 500);
+}

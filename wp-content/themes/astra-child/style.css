@@ -1,0 +1,122 @@
+/**
+Theme Name: ATG CHILD
+Author: OxWebSrv
+Author URI: https://www.oxfordwebservices.com/
+Description: ATG is the fastest, fully customizable & beautiful theme suitable for blogs, personal portfolios and business websites. It is very lightweight (less than 50KB on frontend) and offers unparalleled speed. Built with SEO in mind, ATG comes with schema.org code integrated so search engines will love your site. 
+Version: 1.0.0
+License: GNU General Public License v2 or later
+License URI: http://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: atg-child
+Template: astra
+*/
+
+.booking-summary {
+	margin: 20px 0;
+	text-align: center;
+	font-family:"Open Sans", Sans-serif;
+}
+.booking-summary h2 {
+    text-align: center;
+    margin-bottom: 0px;
+    color: #004c46;
+    margin-top: 40px;
+    font-size: 24px;
+}
+.booking-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 20px;
+	width: 90%;
+    margin: auto;
+	font-family:"Mulish", Sans-serif;
+}
+.summary-btn{
+	margin: 22px;	
+	color:#ffffff!important;
+}
+.summary-btn a{
+	text-decoration: none!important;
+    font-family: 'Open Sans';
+	background: #004c46!important;
+	color:#ffffff!important;
+}
+.summary-btn a:hover{
+	color:#ffffff!important;
+}
+.booking-summary .booking-summary-deposit{
+    color: #000000 !important;
+    margin: 24px 34px;
+    text-align: center;
+    font-size: 18px !important;
+}
+.booking-box {
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	padding: 15px;
+	background: #fafafa;
+	box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+	text-align: left;
+	line-height: 24px;
+}
+.booking-box h3 {
+  border-bottom: 2px solid #2a8bbd;
+  padding-bottom: 5px;
+  margin-bottom: 10px;
+  font-size: 18px;
+  color: #004c46!important;
+}
+.booking-box p {
+  margin: 5px 0;
+}
+.booking-box.full-width {
+  grid-column: span 2;
+}
+
+@media screen and (min-width:800px){
+	.booking-grid{
+		width: 800px;
+		margin: auto;
+	}
+	.booking-summary h2{
+	font-size: 22px;
+    width: 800px;
+    margin: 26px auto;
+    line-height: 34px;
+	}
+}
+@media screen and (max-width:800px){
+.booking-summary h2{
+    font-size: 18px;
+}
+	.booking-summary{
+		padding:10px;
+	}
+.booking-grid{
+    display: flex;
+    flex-direction: column;
+	width:100%;
+}
+.booking-summary .booking-summary-deposit{
+	margin: 20px;
+	font-size: 14px !important;
+}
+}
+.page-id-31288 header#jet-theme-core-header, .page-id-31288 #jet-theme-core-footer{
+display:none;
+}
+.summary-logo-wrapper{
+width: 100%;
+margin: auto;
+background: #004c46;
+	padding: 30px 90px;
+    border-radius: 4px;
+}
+
+
+@media (min-width:801px){
+.summary-logo-wrapper{
+    width: 800px;
+}
+}
+
+
