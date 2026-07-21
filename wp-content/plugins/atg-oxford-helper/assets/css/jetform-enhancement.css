@@ -263,10 +263,6 @@ div.dialog-widget-content{
     padding-bottom: 5px;
 }
 
-.summary-container > div:not(.summary-title) {
-    margin-bottom: 8px;
-}
-
 .summary-container > div:last-child {
     margin-bottom: 0;
 }
@@ -279,7 +275,6 @@ div.dialog-widget-content{
     border: 1px solid #ddd;
     border-radius: 5px;
     padding: 15px;
-    margin: 10px 0;
     background: #f9f9f9;
 }
 

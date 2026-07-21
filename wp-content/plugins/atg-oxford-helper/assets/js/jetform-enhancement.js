@@ -1034,7 +1034,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function updatePopupTitle(buttonId) {
         // console.log("Updating popup title with button ID:", buttonId);
         // Find the heading element in the popup
-        const titleElement = document.querySelector('h4.wp-block-heading.formtitle');
+        const titleElement = document.querySelector('.atg-for-selectroom');
         const hiddenField = document.querySelector('input[name="triptitle"]');
         if (hiddenField && buttonId !== null) {
             const formattedTitlen = formatTitleText(buttonId);
