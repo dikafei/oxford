@@ -132,6 +132,39 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.jetformDatepickerConfig.blockedDates.length > 0;
     }
     
+    // Format any date-ish string as dd/mm/yyyy for display. Handles "2025-09-18",
+    // "2025-09-18T00:00", and already-formatted "18/09/2025" (passthrough).
+    // Used everywhere a date is shown to the user, so the site has one consistent format.
+    window.atgFormatDDMMYYYY = function(dateStr) {
+        if (!dateStr) return dateStr;
+        dateStr = String(dateStr).trim();
+
+        // Already dd/mm/yyyy - leave as-is
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
+            return dateStr;
+        }
+
+        // Strip time portion if present
+        const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+
+        // ISO yyyy-mm-dd
+        const isoMatch = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (isoMatch) {
+            const [, year, month, day] = isoMatch;
+            return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+        }
+
+        // Fallback: try native Date parsing
+        const parsed = new Date(dateStr);
+        if (!isNaN(parsed.getTime())) {
+            const day = String(parsed.getDate()).padStart(2, '0');
+            const month = String(parsed.getMonth() + 1).padStart(2, '0');
+            return `${day}/${month}/${parsed.getFullYear()}`;
+        }
+
+        return dateStr;
+    };
+
     // Function to format date ranges for display
     function formatDateRange(startDateStr, endDateStr) {
         // Handle both date formats: "2025-09-18" and "2025-09-18T00:00"
@@ -141,24 +174,23 @@ document.addEventListener('DOMContentLoaded', function () {
         if (endDateStr.includes('T')) {
             endDateStr = endDateStr.split('T')[0];
         }
-        
+
         const startDate = new Date(startDateStr);
         const endDate = new Date(endDateStr);
-        
+
         // Fix invalid end dates (like "2025-09-15" coming after "2025-10-10")
         let displayStartDate = startDate;
         let displayEndDate = endDate;
-        
+
         if (endDate < startDate) {
             // Swap dates if end date is before start date
             displayStartDate = endDate;
             displayEndDate = startDate;
         }
-        
-        const options = { year: 'numeric', month: 'short', day: 'numeric' };
-        const formattedStart = displayStartDate.toLocaleDateString('en-US', options);
-        const formattedEnd = displayEndDate.toLocaleDateString('en-US', options);
-        
+
+        const formattedStart = window.atgFormatDDMMYYYY(displayStartDate.toISOString().split('T')[0]);
+        const formattedEnd = window.atgFormatDDMMYYYY(displayEndDate.toISOString().split('T')[0]);
+
         return `${formattedStart} to ${formattedEnd}`;
     }
     
@@ -431,7 +463,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const flatpickrInstance = flatpickr(fakeInput, {
-            dateFormat: "Y-m-d",
+            dateFormat: "d/m/Y",
             disableMobile: true,
             allowInput: false,
             clickOpens: true,
@@ -1214,156 +1246,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         };
 
-//         window.updateCompleteSummaryText = function(){
-//             const formData = new FormData(form);
-//             const values = {};
-//             for (let [name, value] of formData.entries()) {
-//                 if (values[name]) {
-//                     if (Array.isArray(values[name])) {
-//                         values[name].push(value);
-//                     }
-//                     else {
-//                         values[name] = [values[name], value];
-//                     }
-//                 }
-//                 else {
-//                     values[name] = value;
-//                 }
-//             }
-//             let roomsHtml = '';
-//             let passengersHtml = '';
-//             let i = 0;
-//             while(true){
-//                 let suffixData = (i > 0) ? "_" + i : "";
-//                 if(values.hasOwnProperty("select_room" + suffixData)){
-//                     passengersHtml = '';
-//                     for(let i = 1; i <= values["number_of_passenger" + suffixData]; i++){
-//                         passengersHtml += `, ${values["passenger_title" + suffixData + '_' + i]} ${values["passenger_first_name" + suffixData + '_' + i]} ${values["passenger_last_name" + suffixData + '_' + i]}`;
-//                     }
-//                     let roomType = '';
-//                     let roomValue = values["select_room" + suffixData];
-//                     if (roomValue.includes("double_room")) roomType = "Double Room";
-//                     else if (roomValue.includes("twin_room")) roomType = "Twin Room";
-//                     else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy";
-//                     else if (roomValue.includes("double_upgrade")) roomType = "Double Room (Upgrade)";
-//                     else if (roomValue.includes("twin_room_upgrade")) roomType = "Twin Room (Upgrade)";
-//                     else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Upgrade)";
-//                     roomsHtml += `
-//                                 <div><strong>Room:</strong> ${roomType}</div>
-//                                 <div><strong>Passengers:</strong> ${values["number_of_passenger" + suffixData]}</div>
-//                                 <div><strong>Subtotal:</strong> ${values["sub_total" + suffixData]}</div>
-//                                 <div><strong>Passengers:</strong> ${passengersHtml.slice(2)}</div>
-//                     `;
-//                     i++;
-//                 }
-//                 else{
-//                     break;
-//                 }
-//             }
-
-//             let summaryContainer = form.querySelector(".complete_summary");
-//             summaryContainer.innerHTML = "";
-//             summaryContainer.innerHTML += `<tr><td>`;
-//             summaryContainer.innerHTML += `<div><strong>Departure Date:</strong> ${values['_departure']}</div>`;
-//             summaryContainer.innerHTML += `${roomsHtml}<br>`;
-//             summaryContainer.innerHTML += `<div><strong>Lead Name Details</strong></div>`;
-//             summaryContainer.innerHTML += `<div><strong>Name:</strong> ${values['first_name']} ${values['last_name']}</div>`;
-//             summaryContainer.innerHTML += `<div><strong>Email:</strong> ${values['email']}</div>`;
-//             summaryContainer.innerHTML += `<div><strong>Phone:</strong> ${values['phone']}</div>`;
-//             summaryContainer.innerHTML += `<div><strong>Deposit:</strong> ${values['deposit']}</div>`;
-//             summaryContainer.innerHTML += `</td></tr>`;
-//         }
-
-		// Summary Page
-		window.updateCompleteSummaryText = function(){
-    	const formData = new FormData(form);
-    	const values = {};
-    	for (let [name, value] of formData.entries()) {
-        	if (values[name]) {
-            	if (Array.isArray(values[name])) {
-                	values[name].push(value);
-            	}
-            	else {
-                	values[name] = [values[name], value];
-            	}
-        	}
-        	else {
-            	values[name] = value;
-        	}
-    	}
-    
-    	let roomsHtml = '';
-    	let passengersHtml = '';
-    	let i = 0;
-    	while(true){
-        	let suffixData = (i > 0) ? "_" + i : "";
-        		if(values.hasOwnProperty("select_room" + suffixData)){
-            		passengersHtml = '';
-            		for(let i = 1; i <= values["number_of_passenger" + suffixData]; i++){
-                		passengersHtml += `, ${values["passenger_title" + suffixData + '_' + i]} ${values["passenger_first_name" + suffixData + '_' + i]} ${values["passenger_last_name" + suffixData + '_' + i]}`;
-            		}
-            	let roomType = '';
-            	let roomValue = values["select_room" + suffixData];
-            	if (roomValue.includes("double_room")) roomType = "Double Room";
-            	else if (roomValue.includes("twin_room")) roomType = "Twin Room";
-            	else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy";
-            	else if (roomValue.includes("double_upgrade")) roomType = "Double Room (Upgrade)";
-            	else if (roomValue.includes("twin_room_upgrade")) roomType = "Twin Room (Upgrade)";
-            	else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Upgrade)";
-            
-            	roomsHtml += `
-                	<div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f9f9f9;">
-                    	<div style="margin-bottom: 8px;"><strong style="color: #333;">Room Type:</strong> ${roomType}</div>
-                    	<div style="margin-bottom: 8px;"><strong style="color: #333;">Passengers:</strong> ${values["number_of_passenger" + suffixData]}</div>
-                    	<div style="margin-bottom: 8px;"><strong style="color: #333;">Subtotal:</strong> ${values["sub_total" + suffixData]}</div>
-                    	<div><strong style="color: #333;">Passenger Names:</strong> ${passengersHtml.slice(2)}</div>
-                	</div>
-            	`;
-            	i++;
-        	}
-        	else{
-            	break;
-        	}
-    	}
-
-        //<div style="margin-bottom: 8px;"><strong style="color: #333;">Deposit:</strong> ${values['deposit']}</div>
-
-    	let summaryContainer = form.querySelector(".complete_summary");
-    	summaryContainer.innerHTML = "";
-    	summaryContainer.innerHTML += `
-        	<tr>
-            	<td>
-                	<div style="display: flex; flex-wrap: wrap; gap: 20px;">
-                    	<div style="flex: 1; min-width: 300px;">
-                        	<div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                            <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Holiday Details</div>
-                            <div style="margin-bottom: 8px;"><strong style="color: #333;">Trip Selected:</strong> ${atg_tour_data.page_name}</div>
-                            <div style="margin-bottom: 8px;"><strong style="color: #333;">Trip Length:</strong> ${values['triptitle']}</div>
-                            <div style="margin-bottom: 8px;"><strong style="color: #333;">Departure Date:</strong> ${values['_departure']}</div>
-                        </div>
-                    </div>
-                    
-                    <div style="flex: 1; min-width: 300px;">
-                        <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                            <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Lead Passenger Details</div>
-                            <div style="margin-bottom: 8px;"><strong style="color: #333;">Name:</strong> ${values['first_name']} ${values['last_name']}</div>
-                            <div style="margin-bottom: 8px;"><strong style="color: #333;">Email:</strong> ${values['email']}</div>
-                            <div style="margin-bottom: 8px;"><strong style="color: #333;">Phone:</strong> ${values['phone']}</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="margin-top: 20px;">
-                    <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                        <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Room Details</div>
-                        ${roomsHtml}
-                    </div>
-                </div>
-            	</td>
-        	</tr>
-    		`;
-		}
-
         form._passengerHandler = handler;
         form.addEventListener("input", handler);
         form.addEventListener("change", handler);
@@ -1391,9 +1273,8 @@ document.addEventListener("DOMContentLoaded", function () {
                         e.preventDefault();
                         return false;
                     }
-                    setTimeout(function() {
-                        window.updateCompleteSummaryText();
-                    }, 500);
+                    // Summary rendering is handled by generateCompleteSummary(), wired to
+                    // this same button via the deposit-calculator click listener below.
                 }, true);
             }
         });
@@ -1487,7 +1368,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 tomorrow.setDate(tomorrow.getDate() + 1);
 
                 const instance = flatpickr(expectedDepartureInput, {
-                    dateFormat: "Y-m-d",
+                    dateFormat: "d/m/Y",
                     minDate: tomorrow,
                     disableMobile: true,
                     allowInput: false,
@@ -1531,7 +1412,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 tomorrow.setDate(tomorrow.getDate() + 1);
 
                 const instance = flatpickr(expectedDepartureInput, {
-                    dateFormat: "Y-m-d",
+                    dateFormat: "d/m/Y",
                     minDate: tomorrow,
                     disableMobile: true,
                     allowInput: false,
@@ -2436,7 +2317,7 @@ document.addEventListener("DOMContentLoaded", function () {
                                 )
                                 : (values['triptitle'] || 'N/A')
                         }</div>
-                        <div class="summary-departure-date"><strong>Departure Date:</strong> ${values['_departure'] || 'N/A'}</div>
+                        <div class="summary-departure-date"><strong>Departure Date:</strong> ${values['_departure'] ? window.atgFormatDDMMYYYY(values['_departure']) : 'N/A'}</div>
                     </div>
                 </div>
 

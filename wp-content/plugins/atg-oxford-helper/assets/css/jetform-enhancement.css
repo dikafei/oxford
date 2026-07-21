@@ -225,3 +225,76 @@ div.dialog-widget-content{
 .room-number-label--first {
     margin-top: 0;
 }
+
+/* ============================================================
+   Booking summary (shared by the review page's generateCompleteSummary()
+   and the thank-you page / confirmation emails via atg_render_booking_detail_boxes()).
+   One set of rules styles both, since they now share the same markup.
+   ============================================================ */
+.summary-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.summary-inner-wrapper {
+    flex: 1;
+    min-width: 300px;
+}
+
+.summary-room-details,
+.summary-additional-requests {
+    margin-top: 20px;
+}
+
+.summary-container {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    background: #f9f9f9;
+}
+
+.summary-title {
+    margin-bottom: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #2c3e50;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 5px;
+}
+
+.summary-container > div:not(.summary-title) {
+    margin-bottom: 8px;
+}
+
+.summary-container > div:last-child {
+    margin-bottom: 0;
+}
+
+.summary-container strong {
+    color: #333;
+}
+
+.summary-room-details-container {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin: 10px 0;
+    background: #f9f9f9;
+}
+
+.summary-room-details-container > div {
+    margin-bottom: 8px;
+}
+
+.summary-room-details-container > div:last-child {
+    margin-bottom: 0;
+}
+
+.summary-room-details-container strong {
+    color: #333;
+}
+
+.summary-closing-note {
+    margin-top: 20px;
+}

@@ -252,18 +252,56 @@ function atg_get_latest_jetformbuilder_submission_by_email($form_id, $email) {
 }
 
 /**
+ * Format any date-ish string as dd/mm/yyyy for display. Mirrors the JS helper
+ * window.atgFormatDDMMYYYY() in jetform-enhancement.js, so the review page,
+ * thank-you page, and emails all show dates the same way regardless of what
+ * format the value happens to be stored in ("2025-09-18", "18/09/2025", etc).
+ *
+ * @param string $date_str Raw date value from a submitted field.
+ * @return string Date formatted as dd/mm/yyyy, or the original string if it
+ *                can't be parsed as a date.
+ */
+function atg_format_ddmmyyyy($date_str) {
+    $date_str = trim((string) $date_str);
+    if ($date_str === '') {
+        return $date_str;
+    }
+
+    // Already dd/mm/yyyy - leave as-is
+    if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{4}$/', $date_str)) {
+        return $date_str;
+    }
+
+    // Strip time portion if present (e.g. "2025-09-18T00:00")
+    $date_part = strpos($date_str, 'T') !== false ? strtok($date_str, 'T') : $date_str;
+
+    foreach (array('Y-m-d', 'Y-n-j') as $format) {
+        $dt = DateTime::createFromFormat($format, $date_part);
+        if ($dt !== false) {
+            return $dt->format('d/m/Y');
+        }
+    }
+
+    // Fallback: let PHP try to parse it generically
+    $timestamp = strtotime($date_str);
+    if ($timestamp !== false) {
+        return date('d/m/Y', $timestamp);
+    }
+
+    return $date_str;
+}
+
+/**
  * Render the "Holiday Details / Lead Passenger Details / Room Details / Additional
- * Requests" boxes, matching the same room-by-room card layout used on the booking
- * review page's summary (generateCompleteSummary() in jetform-enhancement.js), so
- * both pages look the same in the detail section.
+ * Requests" boxes, using the exact same summary-wrapper / summary-container /
+ * summary-title / summary-room-details-container classes as the booking review
+ * page's summary (generateCompleteSummary() in jetform-enhancement.js). Sharing
+ * markup means both pages are styled from the same CSS rules instead of twice.
  *
  * @param array $fields Associative array of submitted field_name => field_value.
- * @return string HTML for the ".booking-grid" wrapper (without the closing note box).
+ * @return string HTML for the summary sections (without the closing note box).
  */
 function atg_render_booking_detail_boxes($fields) {
-    $section_header_style = 'margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;';
-    $row_style = 'margin-bottom: 8px;';
-
     // ---- Holiday Details ----
     $post_id = 0;
     if (!empty($fields['post_id'])) {
@@ -276,8 +314,7 @@ function atg_render_booking_detail_boxes($fields) {
     if (empty($trip_selected)) {
         $trip_selected = $trip_length;
     }
-    $departure = isset($fields['_departure']) ? esc_html($fields['_departure']) : '';
-    $deposit = isset($fields['deposit']) ? esc_html($fields['deposit']) : '';
+    $departure = isset($fields['_departure']) ? esc_html(atg_format_ddmmyyyy($fields['_departure'])) : '';
 
     // ---- Lead Passenger Details ----
     $lead_title = isset($fields['title_field']) ? $fields['title_field'] : '';
@@ -318,11 +355,11 @@ function atg_render_booking_detail_boxes($fields) {
         }
 
         $rooms_html .= '
-            <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f9f9f9;">
-                <div style="margin-bottom: 8px;"><strong style="color: #333;">Room Type:</strong> ' . esc_html($room_type) . '</div>
-                <div style="margin-bottom: 8px;"><strong style="color: #333;">Passengers:</strong> ' . esc_html($passenger_count) . '</div>
-                <div style="margin-bottom: 8px;"><strong style="color: #333;">Subtotal:</strong> ' . $subtotal . '</div>
-                <div><strong style="color: #333;">Passenger Names:</strong> ' . esc_html(implode(', ', $names)) . '</div>
+            <div class="summary-room-details-container">
+                <div class="summary-rd-room-type"><strong>Room Type:</strong> ' . esc_html($room_type) . '</div>
+                <div class="summary-rd-passengers"><strong>Passengers:</strong> ' . esc_html($passenger_count) . '</div>
+                <div class="summary-rd-subtotal"><strong>Subtotal:</strong> ' . $subtotal . '</div>
+                <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ' . esc_html(implode(', ', $names)) . '</div>
             </div>
         ';
 
@@ -333,32 +370,46 @@ function atg_render_booking_detail_boxes($fields) {
         $rooms_html = '<div>No room data available</div>';
     }
 
-    $html = '<div class="booking-grid">
-        <div class="booking-box">
-            <div style="' . $section_header_style . '">Holiday Details</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Trip Length:</strong> ' . $trip_length . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Departure Date:</strong> ' . $departure . '</div>
-        </div>
-        <div class="booking-box">
-            <div style="' . $section_header_style . '">Lead Passenger Details</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Name:</strong> ' . $lead_name . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Email:</strong> ' . $email_display . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Phone:</strong> ' . $phone . '</div>
-            <div><strong style="color: #333;">Address:</strong> ' . $address . '</div>
-        </div>
-        <div class="booking-box full-width">
-            <div style="' . $section_header_style . '">Room Details</div>
-            ' . $rooms_html . '
-        </div>';
-
+    $additional_requests_html = '';
     if (!empty($additional_requests)) {
-        $html .= '
-        <div class="booking-box full-width">
-            <div style="' . $section_header_style . '">Additional Requests</div>
-            <div>' . nl2br(esc_html($additional_requests)) . '</div>
-        </div>';
+        $additional_requests_html = '
+            <div class="summary-additional-requests">
+                <div class="summary-container">
+                    <div class="summary-title">Additional Requests</div>
+                    <div>' . nl2br(esc_html($additional_requests)) . '</div>
+                </div>
+            </div>';
     }
+
+    $html = '
+        <div class="summary-wrapper">
+            <div class="summary-holiday-details summary-inner-wrapper">
+                <div class="summary-container">
+                    <div class="summary-title">Holiday Details</div>
+                    <div class="summary-trip-selected"><strong>Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
+                    <div class="summary-trip-length"><strong>Trip Length:</strong> ' . $trip_length . '</div>
+                    <div class="summary-departure-date"><strong>Departure Date:</strong> ' . $departure . '</div>
+                </div>
+            </div>
+
+            <div class="summary-lead-passenger summary-inner-wrapper">
+                <div class="summary-container">
+                    <div class="summary-title">Lead Passenger Details</div>
+                    <div class="summary-lp-name"><strong>Name:</strong> ' . $lead_name . '</div>
+                    <div class="summary-lp-email"><strong>Email:</strong> ' . $email_display . '</div>
+                    <div class="summary-lp-phone"><strong>Phone:</strong> ' . $phone . '</div>
+                    <div class="summary-lp-address"><strong>Address:</strong> ' . $address . '</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-room-details">
+            <div class="summary-container">
+                <div class="summary-title">Room Details</div>
+                ' . $rooms_html . '
+            </div>
+        </div>
+        ' . $additional_requests_html;
 
     // Note message, closing line, team name, phone, and email are all editable
     // under Settings > ATG Booking Settings instead of being hardcoded here.
@@ -370,14 +421,15 @@ function atg_render_booking_detail_boxes($fields) {
     $footer_email = isset($settings['atg_footer_email']) ? $settings['atg_footer_email'] : '';
 
     $html .= '
-        <div class="booking-box full-width">
-            <p>' . nl2br(esc_html($note_message)) . '</p>
-            <p><strong>' . esc_html($note_closing_line) . '</strong></p>
-            <p><strong>' . esc_html($team_name) . '</strong></p>
-            <p><strong>Tel: ' . esc_html($footer_phone) . '</strong></p>
-            <p><strong>Email: ' . esc_html($footer_email) . '</strong></p>
-        </div>
-    </div>';
+        <div class="summary-closing-note">
+            <div class="summary-container">
+                <p>' . nl2br(esc_html($note_message)) . '</p>
+                <p><strong>' . esc_html($note_closing_line) . '</strong></p>
+                <p><strong>' . esc_html($team_name) . '</strong></p>
+                <p><strong>Tel: ' . esc_html($footer_phone) . '</strong></p>
+                <p><strong>Email: ' . esc_html($footer_email) . '</strong></p>
+            </div>
+        </div>';
 
     return $html;
 }
