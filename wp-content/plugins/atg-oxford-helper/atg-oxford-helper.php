@@ -14,6 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'ATG_OXFORD_HELPER_VERSION', '1.2.11' );
 
+// Include admin settings (deposit amounts, promo code) - loaded first so the
+// atg_get_booking_settings() helper it defines is available to frontend-data.php.
+require_once plugin_dir_path( __FILE__ ) . 'includes/admin-settings.php';
+
 // Include frontend data functionality.
 require_once plugin_dir_path( __FILE__ ) . 'includes/frontend-data.php';
 

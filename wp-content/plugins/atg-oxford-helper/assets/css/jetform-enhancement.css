@@ -181,3 +181,52 @@ div.dialog-widget-content{
     gap: 20px;
     width: 100%;
 }
+
+.add-room-btn__label,
+.remove-room-btn__label {
+    font-size: 14px;
+    color: #333;
+}
+
+/* Group "Room Details" (primary room) + additional rooms into one shared card,
+   so "Room 1", "Room 2", "Room 3"... read as part of the same section. */
+.room-details-card {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background: #f9f9f9;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.room-details-card > .passangerfields,
+.room-details-card > .additionalfields {
+    margin: 0 !important;
+}
+
+.room-details-card > .passenger-details-container {
+    margin: 15px 0 0 !important;
+}
+
+.room-details-card .additional-room-buttons {
+    margin-top: 15px;
+}
+
+/* "Room Details" stands alone as the card title */
+.room-details-card > .passangerfields h3.wp-block-heading {
+    margin-bottom: 15px !important;
+}
+
+.room-number-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 25px 0 12px;
+    padding-top: 20px;
+    border-top: 1px solid #ddd;
+}
+
+.room-number-label--first {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}

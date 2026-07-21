@@ -1031,7 +1031,74 @@ document.addEventListener("DOMContentLoaded", function () {
     function formatTitleText(buttonId){
         return buttonId.split('–')[0].trim().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
     }
-    
+
+    // ================= FIXED DEPOSIT ===================
+    // Deposit is a flat amount per person - independent vs escorted trips have their
+    // own rate - rather than a percentage of the total price. All the figures below
+    // (deposit rates, promo code, discount %, and whether the promo discounts the
+    // deposit too) are editable under Settings > ATG Booking Settings in wp-admin,
+    // and come through on window.atg_tour_data. The literals here are only a
+    // last-resort fallback in case that data hasn't loaded for some reason.
+    function getDepositPerPassenger() {
+        const data = window.atg_tour_data || {};
+        const isEscorted = !!data.is_escorted;
+        const rate = isEscorted ? data.atg_deposit_escorted : data.atg_deposit_independent;
+        const parsed = parseFloat(rate);
+        if (!isNaN(parsed) && parsed >= 0) {
+            return parsed;
+        }
+        return isEscorted ? 500 : 200;
+    }
+
+    function getPromoSettings() {
+        const data = window.atg_tour_data || {};
+
+        const code = (data.atg_promo_code || 'ATG10').toString().trim().toUpperCase();
+
+        let discountFraction = 0.1;
+        const parsedPercent = parseFloat(data.atg_promo_discount_percent);
+        if (!isNaN(parsedPercent) && parsedPercent >= 0) {
+            discountFraction = parsedPercent / 100;
+        }
+
+        const appliesToDeposit = !!(data.atg_promo_discount_applies_to_deposit && data.atg_promo_discount_applies_to_deposit !== '0');
+
+        return { code: code, discountFraction: discountFraction, appliesToDeposit: appliesToDeposit };
+    }
+
+    function isPromoCodeActive(promoCodeValue, total) {
+        const promo = getPromoSettings();
+        return (promoCodeValue || '').toString().trim().toUpperCase() === promo.code && total > 0;
+    }
+
+    function getTotalPassengerCount() {
+        let count = 0;
+
+        const mainInput = document.querySelector('input[name="number_of_passenger"]');
+        if (mainInput) {
+            count += parseInt(mainInput.value) || 0;
+        }
+
+        document.querySelectorAll('input[name^="number_of_passenger_"]').forEach(function(input) {
+            count += parseInt(input.value) || 0;
+        });
+
+        return count;
+    }
+
+    function calculateFixedDeposit(isPromoActive) {
+        let deposit = getTotalPassengerCount() * getDepositPerPassenger();
+
+        if (isPromoActive) {
+            const promo = getPromoSettings();
+            if (promo.appliesToDeposit) {
+                deposit = deposit * (1 - promo.discountFraction);
+            }
+        }
+
+        return deposit.toFixed(2);
+    }
+
     // Passenger text sync setup
     function setupFormSyncIfPresent() {
         const form = document.querySelector("form.jet-form-builder");
@@ -1119,23 +1186,21 @@ document.addEventListener("DOMContentLoaded", function () {
                 window.updatePassengerDataText();
             }
 
-            // Update deposit whenever any subtotal changes (including additional rooms)
+            // Update deposit whenever passenger counts change (including additional rooms).
+            // Deposit is a fixed amount per passenger, not a percentage of price.
             if (name === "sub_total" || name.startsWith("sub_total_") || name === "select_room" || name.startsWith("select_room_") || name === "number_of_passenger" || name.startsWith("number_of_passenger_")) {
-                let total = 0;
-
-                // Go through all input fields that have name containing "sub_total"
-                const subtotalInputs = form.querySelectorAll('input[name="sub_total"], input[name^="sub_total_"]');
-                subtotalInputs.forEach(function(input) {
-                    const numericValue = input.value.replace(/[^0-9.]/g, '');
-                    const value = parseFloat(numericValue) || 0;
-                    total += value;
-                });
-
-                // Set the deposit field to 25% of the total
                 const depositInput = form.querySelector('input[name="deposit"]');
                 const depositFieldLabel = document.querySelector('.custom-deposit-field .jet-form-builder__label-text');
                 if (depositInput) {
-                    const depositValue = (total * 0.25).toFixed(2);
+                    const subtotalInputsForPromo = form.querySelectorAll('input[name="sub_total"], input[name^="sub_total_"]');
+                    let totalForPromo = 0;
+                    subtotalInputsForPromo.forEach(function(input) {
+                        totalForPromo += parseFloat(input.value.replace(/[^0-9.]/g, '')) || 0;
+                    });
+                    const promoInput = form.querySelector('input[name="promo_code"]');
+                    const promoActive = isPromoCodeActive(promoInput ? promoInput.value : '', totalForPromo);
+
+                    const depositValue = calculateFixedDeposit(promoActive);
                     depositInput.value = depositValue;
                     if(depositFieldLabel){
                         depositFieldLabel.innerHTML = 'Deposit Due: £' + depositValue;
@@ -1560,22 +1625,27 @@ document.addEventListener("DOMContentLoaded", function () {
             const addBtn = document.createElement("button");
             addBtn.type = "button";
             addBtn.className = "add-room-btn";
-            addBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M13.7 2.3C12.1.8 10.1 0 8 0S3.9.8 2.3 2.3 0 5.9 0 8s.8 4.1 2.3 5.7S5.9 16 8 16s4.1-.8 5.7-2.3S16 10.1 16 8s-.8-4.1-2.3-5.7zM8 14.8c-3.7 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3.1 6.8-6.8 6.8zm.6-7.4h2.8v1.2H8.6v2.8H7.4V8.6H4.6V7.4h2.8V4.6h1.2v2.8z"></path></svg>`;
+            addBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M13.7 2.3C12.1.8 10.1 0 8 0S3.9.8 2.3 2.3 0 5.9 0 8s.8 4.1 2.3 5.7S5.9 16 8 16s4.1-.8 5.7-2.3S16 10.1 16 8s-.8-4.1-2.3-5.7zM8 14.8c-3.7 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3.1 6.8-6.8 6.8zm.6-7.4h2.8v1.2H8.6v2.8H7.4V8.6H4.6V7.4h2.8V4.6h1.2v2.8z"></path></svg><span class="add-room-btn__label">Add Room</span>`;
             addBtn.style.padding = "0";
             addBtn.style.backgroundColor = "transparent";
             addBtn.style.border = "none";
             addBtn.style.cursor = "pointer";
+            addBtn.style.display = "flex";
+            addBtn.style.alignItems = "center";
+            addBtn.style.gap = "6px";
 
             // Remove Room button (initially hidden)
             const removeBtn = document.createElement("button");
             removeBtn.type = "button";
             removeBtn.className = "remove-room-btn";
-            removeBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M8 16c-2.1 0-4.1-.8-5.7-2.3S0 10.1 0 8s.8-4.1 2.3-5.7S5.9 0 8 0s4.1.8 5.7 2.3S16 5.9 16 8s-.8 4.1-2.3 5.7S10.1 16 8 16zM8 1.2c-3.7 0-6.8 3-6.8 6.8s3 6.8 6.8 6.8 6.8-3 6.8-6.8S11.7 1.2 8 1.2zm3.4 6.2H4.6v1.2h6.9V7.4z"></path></svg>`;
+            removeBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M8 16c-2.1 0-4.1-.8-5.7-2.3S0 10.1 0 8s.8-4.1 2.3-5.7S5.9 0 8 0s4.1.8 5.7 2.3S16 5.9 16 8s-.8 4.1-2.3 5.7S10.1 16 8 16zM8 1.2c-3.7 0-6.8 3-6.8 6.8s3 6.8 6.8 6.8 6.8-3 6.8-6.8S11.7 1.2 8 1.2zm3.4 6.2H4.6v1.2h6.9V7.4z"></path></svg><span class="remove-room-btn__label">Remove Room</span>`;
             removeBtn.style.padding = "0";
             removeBtn.style.backgroundColor = "transparent";
             removeBtn.style.border = "none";
             removeBtn.style.cursor = "pointer";
             removeBtn.style.display = "none";
+            removeBtn.style.alignItems = "center";
+            removeBtn.style.gap = "6px";
 
             buttonContainer.appendChild(addBtn);
             buttonContainer.appendChild(removeBtn);
@@ -1589,6 +1659,54 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
+    // ================= ROOM DETAILS GROUPING ===================
+    // Visually group "Room Details" (primary room) + additional rooms into one
+    // shared card, with "Room 1", "Room 2"... labels, so they read as one section.
+    function addPrimaryRoomLabel() {
+        const primaryColumn = document.querySelector(".passangerfields .wp-block-column");
+        if (!primaryColumn) return;
+        if (primaryColumn.querySelector(".room-number-label")) return; // already added
+
+        const roomMain = primaryColumn.querySelector(".room_main:not(.additional-room)");
+        if (!roomMain) return;
+
+        const label = document.createElement("h4");
+        label.className = "room-number-label room-number-label--first";
+        label.textContent = "Room 1";
+        primaryColumn.insertBefore(label, roomMain);
+    }
+
+    function groupRoomDetailsSection() {
+        // Already grouped - just make sure the "Room 1" label is present (DOM may have refreshed)
+        if (document.querySelector(".room-details-card")) {
+            addPrimaryRoomLabel();
+            return;
+        }
+
+        const passangerFields = document.querySelector(".passangerfields.atg-passanger-details") || document.querySelector(".passangerfields");
+        if (!passangerFields) return;
+
+        const additionalFields = document.querySelector(".additionalfields");
+
+        // Room 1's own "Passenger Details" block sits as the next sibling after .passangerfields
+        let leadPassengerContainer = null;
+        const sib = passangerFields.nextElementSibling;
+        if (sib && sib.classList.contains("passenger-details-container")) {
+            leadPassengerContainer = sib;
+        }
+
+        const card = document.createElement("div");
+        card.className = "room-details-card";
+
+        passangerFields.parentNode.insertBefore(card, passangerFields);
+        card.appendChild(passangerFields);
+        if (leadPassengerContainer) card.appendChild(leadPassengerContainer);
+        if (additionalFields) card.appendChild(additionalFields);
+
+        addPrimaryRoomLabel();
+        // console.log("Room details section grouped into one card");
+    }
+
     // Use event delegation for button clicks to avoid issues with dynamic elements
     document.addEventListener("click", function(e) {
         // Handle add room button click
@@ -1598,7 +1716,7 @@ document.addEventListener("DOMContentLoaded", function () {
             // Show remove button when there are additional rooms
             const removeBtn = document.querySelector(".remove-room-btn");
             if (removeBtn && window.tripData.additionalRoomsCount > 0) {
-                removeBtn.style.display = "block";
+                removeBtn.style.display = "flex";
             }
         }
 
@@ -1667,13 +1785,11 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
         
-        // Add room title
-        const roomTitle = document.createElement("h3");
-        roomTitle.textContent = `Additional Room ${roomIndex}`;
-        roomTitle.style.marginTop = "20px";
-        roomTitle.style.paddingBottom = "10px";
-        roomTitle.style.borderBottom = "1px solid #eee";
-        
+        // Add room title (e.g. "Room 2", "Room 3"...) so it reads as a continuation of "Room Details"
+        const roomTitle = document.createElement("h4");
+        roomTitle.className = "room-number-label";
+        roomTitle.textContent = `Room ${roomIndex + 1}`;
+
         newRoom.insertBefore(roomTitle, newRoom.firstChild);
         
         container.insertBefore(newRoom, container.querySelector('.additional-room-buttons'));
@@ -2020,9 +2136,11 @@ document.addEventListener("DOMContentLoaded", function () {
     // Initialize everything
     // console.log("Initializing additional room button");
     addAdditionalRoomButton();
+    groupRoomDetailsSection();
     const roomObserver = new MutationObserver(() => {
         // console.log("DOM mutation detected, checking for additional room button");
         addAdditionalRoomButton();
+        groupRoomDetailsSection();
     });
     roomObserver.observe(document.body, { childList: true, subtree: true });
 
@@ -2067,16 +2185,16 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             // Check if promo code is active (reuse promoCodeInput from above)
-            const promoCode = promoCodeInput ? promoCodeInput.value.trim().toUpperCase() : '';
-            const isPromoActive = promoCode === 'ATG10' && total > 0;
+            const promoCode = promoCodeInput ? promoCodeInput.value : '';
+            const isPromoActive = isPromoCodeActive(promoCode, total);
+            const promoSettings = getPromoSettings();
 
             let finalTotal = total;
             let discountAmount = 0;
 
             if (isPromoActive) {
-                // Apply 10% discount
-                finalTotal = total * 0.9;
-                discountAmount = total * 0.1;
+                finalTotal = total * (1 - promoSettings.discountFraction);
+                discountAmount = total * promoSettings.discountFraction;
             }
 
             // Display total tour price
@@ -2094,10 +2212,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 if (isPromoActive) {
                     // Show discounted price
+                    const discountPercentLabel = Math.round(promoSettings.discountFraction * 1000) / 10;
                     totalPriceElement.innerHTML =
                         'Total Holiday Price: <span style="text-decoration: line-through;">£' + total.toFixed(2) + '</span> ' +
                         '<span style="color: green; font-weight: bold;">£' + finalTotal.toFixed(2) + '</span> ' +
-                        '<small style="color: green;">(10% discount: -£' + discountAmount.toFixed(2) + ')</small>';
+                        '<small style="color: green;">(' + discountPercentLabel + '% discount: -£' + discountAmount.toFixed(2) + ')</small>';
                 } else {
                     // Show regular price
                     totalPriceElement.innerHTML = 'Total Holiday Price: £' + total.toFixed(2);
@@ -2106,8 +2225,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 depositWrapper.insertBefore(totalPriceElement, depositWrapper.firstChild);
             }
 
-            // Calculate 25% deposit based on final total (with discount if applicable)
-            let deposit = (finalTotal * 0.25).toFixed(2);
+            // Deposit is a fixed amount per passenger (independent vs escorted rate).
+            // Whether the promo code also discounts the deposit is controlled by the
+            // "Apply discount to the deposit too?" setting in wp-admin.
+            let deposit = calculateFixedDeposit(isPromoActive);
 
             // Find and update deposit field
             const depositField = document.querySelector('input#deposit');
@@ -2131,14 +2252,12 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     // ================= PROMO CODE HANDLER ===================
-    // Handle promo code changes for 2026 bookings
+    // Handle promo code changes. The discount always affects the Total Holiday Price
+    // display (the balance due later); whether it also affects today's deposit depends
+    // on the "Apply discount to the deposit too?" setting in wp-admin.
     document.addEventListener('change', function(e) {
         if (e.target.matches('input[name="promo_code"]')) {
-            const promoCode = e.target.value.trim().toUpperCase();
             const totalPriceElement = document.querySelector('p.total_tour_price');
-            const depositField = document.querySelector('input#deposit');
-            const depositFieldLabel = document.querySelector('.custom-deposit-field .jet-form-builder__label-text');
-
 
             if (!totalPriceElement) return;
 
@@ -2151,40 +2270,79 @@ document.addEventListener("DOMContentLoaded", function () {
                 total += numericValue;
             });
 
-            if (promoCode === 'ATG10' && total > 0) {
-                // Apply 10% discount
-                const discountedTotal = total * 0.9;
-                const discountAmount = total * 0.1;
+            const isPromoActive = isPromoCodeActive(e.target.value, total);
+            const promoSettings = getPromoSettings();
+
+            if (isPromoActive) {
+                const discountedTotal = total * (1 - promoSettings.discountFraction);
+                const discountAmount = total * promoSettings.discountFraction;
+                const discountPercentLabel = Math.round(promoSettings.discountFraction * 1000) / 10;
 
                 // Update total price display with strikethrough
                 totalPriceElement.innerHTML =
                     'Total Holiday Price: <span style="text-decoration: line-through;">£' + total.toFixed(2) + '</span> ' +
                     '<span style="color: green; font-weight: bold;">£' + discountedTotal.toFixed(2) + '</span> ' +
-                    '<small style="color: green;">(10% discount: -£' + discountAmount.toFixed(2) + ')</small>';
-
-                // Update deposit with discounted total
-                const newDeposit = (discountedTotal * 0.25).toFixed(2);
-                if (depositField) {
-                    depositField.value = newDeposit;
-                    if(depositFieldLabel){
-                        depositFieldLabel.innerHTML = 'Deposit Due: £' + newDeposit;
-                    }
-                }
+                    '<small style="color: green;">(' + discountPercentLabel + '% discount: -£' + discountAmount.toFixed(2) + ')</small>';
             } else {
                 // Reset to original price
                 totalPriceElement.innerHTML = 'Total Holiday Price: £' + total.toFixed(2);
+            }
 
-                // Reset deposit to original
-                const originalDeposit = (total * 0.25).toFixed(2);
+            // Only touch the deposit here if the admin setting says the promo should
+            // affect it - otherwise leave it exactly as calculateFixedDeposit() set it.
+            if (promoSettings.appliesToDeposit) {
+                const depositField = document.querySelector('input#deposit');
+                const depositFieldLabel = document.querySelector('.custom-deposit-field .jet-form-builder__label-text');
                 if (depositField) {
-                    depositField.value = originalDeposit;
-                    if(depositFieldLabel){
-                        depositFieldLabel.innerHTML = 'Deposit Due: £' + originalDeposit;
+                    const depositValue = calculateFixedDeposit(isPromoActive);
+                    depositField.value = depositValue;
+                    if (depositFieldLabel) {
+                        depositFieldLabel.innerHTML = 'Deposit Due: £' + depositValue;
                     }
                 }
             }
         }
     });
+
+    // ================= PREVENT DOUBLE SUBMISSION ===================
+    // Guard against double-clicking "Pay Deposit". Listening on the form's native
+    // "submit" event (rather than the button's click) means this only fires once
+    // JetFormBuilder's own validation has already passed, so a validation failure
+    // never leaves the button stuck showing "Processing...". Without this, a fast
+    // double-click can create two separate booking records for the same submission,
+    // and each one legitimately triggers its own confirmation email.
+    document.addEventListener('submit', function(e) {
+        const form = e.target;
+        if (!form || !form.classList || !form.classList.contains('jet-form-builder')) return;
+
+        const submitBtn = form.querySelector('.jet-form-builder__submit');
+        if (!submitBtn) return;
+
+        if (submitBtn.dataset.atgSubmitting === 'true') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return false;
+        }
+
+        submitBtn.dataset.atgSubmitting = 'true';
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.6';
+        submitBtn.style.cursor = 'not-allowed';
+        submitBtn.dataset.atgOriginalText = submitBtn.textContent;
+        submitBtn.textContent = 'Processing...';
+
+        // Safety net in case the gateway redirect never happens (e.g. the customer
+        // closes a payment popup) so the button doesn't stay disabled forever.
+        setTimeout(function() {
+            if (document.body.contains(submitBtn)) {
+                submitBtn.disabled = false;
+                submitBtn.dataset.atgSubmitting = 'false';
+                submitBtn.style.opacity = '';
+                submitBtn.style.cursor = '';
+                submitBtn.textContent = submitBtn.dataset.atgOriginalText || 'Pay Deposit';
+            }
+        }, 15000);
+    }, true);
 
     // ================= SUMMARY GENERATOR ===================
     function generateCompleteSummary() {
@@ -2261,6 +2419,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // Build complete summary HTML. this could be for escorted form. figured out by mike on 12/26/2025 when client reported error where escorted form summary showed trip name instead of trip length
         // <div style="margin-bottom: 8px;"><strong style="color: #333;">Deposit:</strong> ${values['deposit'] || 'N/A'}</div>
+
+        // Lead passenger title + address + additional requests (previously missing from the summary)
+        const leadTitle = values['title_field'] || '';
+        const leadName = `${leadTitle} ${values['first_name'] || ''} ${values['last_name'] || ''}`.replace(/\s+/g, ' ').trim();
+        const leadAddress = values['full_address'] ? String(values['full_address']).replace(/\n/g, '<br>') : '';
+        const additionalRequests = values['additional_requests'] ? String(values['additional_requests']).replace(/\n/g, '<br>') : '';
+
+        const additionalRequestsHtml = additionalRequests
+            ? `
+            <div style="margin-top: 20px;">
+                <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
+                    <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Additional Requests</div>
+                    <div>${additionalRequests}</div>
+                </div>
+            </div>
+            `
+            : '';
+
         const summaryHtml = `
             <div style="display: flex; flex-wrap: wrap; gap: 20px;">
                 <div style="flex: 1; min-width: 300px;">
@@ -2284,9 +2460,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 <div style="flex: 1; min-width: 300px;">
                     <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
                         <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Lead Passenger Details</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Name:</strong> ${values['first_name'] || ''} ${values['last_name'] || ''}</div>
+                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Name:</strong> ${leadName || 'N/A'}</div>
                         <div style="margin-bottom: 8px;"><strong style="color: #333;">Email:</strong> ${values['email'] || 'N/A'}</div>
                         <div style="margin-bottom: 8px;"><strong style="color: #333;">Phone:</strong> ${values['phone'] || 'N/A'}</div>
+                        <div><strong style="color: #333;">Address:</strong> ${leadAddress || 'N/A'}</div>
                     </div>
                 </div>
             </div>
@@ -2297,6 +2474,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     ${roomsHtml}
                 </div>
             </div>
+            ${additionalRequestsHtml}
         `;
 
         summaryContainer.innerHTML = summaryHtml;

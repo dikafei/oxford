@@ -67,6 +67,12 @@ class ATG_Tour_Frontend_Data {
             $tour_data['pricing_twin'] = $this->get_pricing_field( $post->ID, '_pricing_twin' );
         }
 
+        // Deposit amounts + promo code behaviour - editable under Settings > ATG Booking
+        // Settings instead of being hardcoded, applies to every tour regardless of type.
+        if ( function_exists( 'atg_get_booking_settings' ) ) {
+            $tour_data = array_merge( $tour_data, atg_get_booking_settings() );
+        }
+
         return $tour_data;
     }
 
@@ -179,172 +185,386 @@ add_action('wp_footer', function() {
 });
 
 // moving code from child theme to here
+
+/**
+ * Find the most recent JetFormBuilder submission for a given email + form,
+ * regardless of whether it has already triggered a notification email.
+ *
+ * The URL query string on the "reload" redirect only carries a handful of
+ * whitelisted fields, so it's missing things like the lead's title, full
+ * address, additional requests, and the per-room passenger breakdown for
+ * additional rooms. The DB record has every submitted field by name, so we
+ * use it as the source of truth for the thank-you page (and the email).
+ *
+ * @param int    $form_id JetFormBuilder form ID.
+ * @param string $email   Email address to match against the submission.
+ * @return array Associative array of field_name => field_value, or empty array if not found.
+ */
+function atg_get_latest_jetformbuilder_submission_by_email($form_id, $email) {
+    global $wpdb;
+
+    if (empty($email)) {
+        return array();
+    }
+
+    $records_table = $wpdb->prefix . 'jet_fb_records';
+    $fields_table = $wpdb->prefix . 'jet_fb_records_fields';
+
+    $records_query = $wpdb->prepare(
+        "SELECT * FROM $records_table WHERE form_id = %d ORDER BY id DESC",
+        $form_id
+    );
+    $records = $wpdb->get_results($records_query, ARRAY_A);
+
+    if (empty($records)) {
+        return array();
+    }
+
+    foreach ($records as $record) {
+        $submission_data = array();
+
+        $fields_query = $wpdb->prepare(
+            "SELECT field_name, field_value FROM $fields_table WHERE record_id = %d",
+            $record['id']
+        );
+        $fields = $wpdb->get_results($fields_query, ARRAY_A);
+
+        if (!empty($fields)) {
+            foreach ($fields as $field) {
+                $submission_data[$field['field_name']] = $field['field_value'];
+            }
+        } elseif (!empty($record['meta_data'])) {
+            $meta_data = maybe_unserialize($record['meta_data']);
+            if (!empty($meta_data['_form_data'])) {
+                $submission_data = $meta_data['_form_data'];
+            }
+        }
+
+        if (
+            isset($submission_data['email']) &&
+            strtolower(trim($submission_data['email'])) === strtolower(trim($email))
+        ) {
+            return $submission_data;
+        }
+    }
+
+    return array();
+}
+
+/**
+ * Render the "Holiday Details / Lead Passenger Details / Room Details / Additional
+ * Requests" boxes, matching the same room-by-room card layout used on the booking
+ * review page's summary (generateCompleteSummary() in jetform-enhancement.js), so
+ * both pages look the same in the detail section.
+ *
+ * @param array $fields Associative array of submitted field_name => field_value.
+ * @return string HTML for the ".booking-grid" wrapper (without the closing note box).
+ */
+function atg_render_booking_detail_boxes($fields) {
+    $section_header_style = 'margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;';
+    $row_style = 'margin-bottom: 8px;';
+
+    // ---- Holiday Details ----
+    $post_id = 0;
+    if (!empty($fields['post_id'])) {
+        $post_id = intval($fields['post_id']);
+    } elseif (!empty($fields['__queried_post_id'])) {
+        $post_id = intval($fields['__queried_post_id']);
+    }
+    $trip_length = isset($fields['triptitle']) ? esc_html($fields['triptitle']) : '';
+    $trip_selected = $post_id ? get_the_title($post_id) : '';
+    if (empty($trip_selected)) {
+        $trip_selected = $trip_length;
+    }
+    $departure = isset($fields['_departure']) ? esc_html($fields['_departure']) : '';
+    $deposit = isset($fields['deposit']) ? esc_html($fields['deposit']) : '';
+
+    // ---- Lead Passenger Details ----
+    $lead_title = isset($fields['title_field']) ? $fields['title_field'] : '';
+    $first_name = isset($fields['first_name']) ? $fields['first_name'] : '';
+    $last_name = isset($fields['last_name']) ? $fields['last_name'] : '';
+    $lead_name = esc_html(trim(preg_replace('/\s+/', ' ', $lead_title . ' ' . $first_name . ' ' . $last_name)));
+    $email_display = isset($fields['email']) ? esc_html($fields['email']) : '';
+    $phone = isset($fields['phone']) ? esc_html($fields['phone']) : '';
+    $address = isset($fields['full_address']) && $fields['full_address'] !== '' ? nl2br(esc_html($fields['full_address'])) : 'N/A';
+
+    // ---- Additional Requests ----
+    $additional_requests = isset($fields['additional_requests']) ? trim($fields['additional_requests']) : '';
+
+    // ---- Room Details: walk main room + each additional room, same as the review page ----
+    $rooms_html = '';
+    $i = 0;
+    while (true) {
+        $suffix = $i > 0 ? '_' . $i : '';
+        $room_key = 'select_room' . $suffix;
+
+        if (empty($fields[$room_key])) {
+            break;
+        }
+
+        $room_type = rawRoomTypeToDisplayRoomType($fields[$room_key]);
+        $passenger_count = isset($fields['number_of_passenger' . $suffix]) ? intval($fields['number_of_passenger' . $suffix]) : 0;
+        $subtotal = isset($fields['sub_total' . $suffix]) ? esc_html($fields['sub_total' . $suffix]) : '';
+
+        $names = array();
+        for ($j = 1; $j <= $passenger_count; $j++) {
+            $t = isset($fields['passenger_title' . $suffix . '_' . $j]) ? $fields['passenger_title' . $suffix . '_' . $j] : '';
+            $fn = isset($fields['passenger_first_name' . $suffix . '_' . $j]) ? $fields['passenger_first_name' . $suffix . '_' . $j] : '';
+            $ln = isset($fields['passenger_last_name' . $suffix . '_' . $j]) ? $fields['passenger_last_name' . $suffix . '_' . $j] : '';
+            $full = trim(preg_replace('/\s+/', ' ', $t . ' ' . $fn . ' ' . $ln));
+            if ($full !== '') {
+                $names[] = $full;
+            }
+        }
+
+        $rooms_html .= '
+            <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f9f9f9;">
+                <div style="margin-bottom: 8px;"><strong style="color: #333;">Room Type:</strong> ' . esc_html($room_type) . '</div>
+                <div style="margin-bottom: 8px;"><strong style="color: #333;">Passengers:</strong> ' . esc_html($passenger_count) . '</div>
+                <div style="margin-bottom: 8px;"><strong style="color: #333;">Subtotal:</strong> ' . $subtotal . '</div>
+                <div><strong style="color: #333;">Passenger Names:</strong> ' . esc_html(implode(', ', $names)) . '</div>
+            </div>
+        ';
+
+        $i++;
+    }
+
+    if (empty($rooms_html)) {
+        $rooms_html = '<div>No room data available</div>';
+    }
+
+    $html = '<div class="booking-grid">
+        <div class="booking-box">
+            <div style="' . $section_header_style . '">Holiday Details</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Trip Length:</strong> ' . $trip_length . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Departure Date:</strong> ' . $departure . '</div>
+        </div>
+        <div class="booking-box">
+            <div style="' . $section_header_style . '">Lead Passenger Details</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Name:</strong> ' . $lead_name . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Email:</strong> ' . $email_display . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Phone:</strong> ' . $phone . '</div>
+            <div><strong style="color: #333;">Address:</strong> ' . $address . '</div>
+        </div>
+        <div class="booking-box full-width">
+            <div style="' . $section_header_style . '">Room Details</div>
+            ' . $rooms_html . '
+        </div>';
+
+    if (!empty($additional_requests)) {
+        $html .= '
+        <div class="booking-box full-width">
+            <div style="' . $section_header_style . '">Additional Requests</div>
+            <div>' . nl2br(esc_html($additional_requests)) . '</div>
+        </div>';
+    }
+
+    // Note message, closing line, team name, phone, and email are all editable
+    // under Settings > ATG Booking Settings instead of being hardcoded here.
+    $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
+    $note_message = isset($settings['atg_booking_note_message']) ? $settings['atg_booking_note_message'] : '';
+    $note_closing_line = isset($settings['atg_booking_note_closing_line']) ? $settings['atg_booking_note_closing_line'] : '';
+    $team_name = isset($settings['atg_footer_team_name']) ? $settings['atg_footer_team_name'] : 'ATG Reservations';
+    $footer_phone = isset($settings['atg_footer_phone']) ? $settings['atg_footer_phone'] : '';
+    $footer_email = isset($settings['atg_footer_email']) ? $settings['atg_footer_email'] : '';
+
+    $html .= '
+        <div class="booking-box full-width">
+            <p>' . nl2br(esc_html($note_message)) . '</p>
+            <p><strong>' . esc_html($note_closing_line) . '</strong></p>
+            <p><strong>' . esc_html($team_name) . '</strong></p>
+            <p><strong>Tel: ' . esc_html($footer_phone) . '</strong></p>
+            <p><strong>Email: ' . esc_html($footer_email) . '</strong></p>
+        </div>
+    </div>';
+
+    return $html;
+}
+
+/**
+ * Renders a "staff only" box with everything a customer-facing summary leaves out
+ * (promo code, consent checkboxes, marketing opt-in, how they heard about us) so the
+ * internal booking notification email gives Reservations the full picture to process it.
+ *
+ * @param array      $fields Associative array of submitted field_name => field_value.
+ * @param int|string $ref    Booking reference (DB record ID) to display, if known.
+ * @return string HTML for a ".booking-box full-width" section.
+ */
+function atg_render_staff_only_booking_info($fields, $ref = '') {
+    $section_header_style = 'margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;';
+    $row_style = 'margin-bottom: 8px;';
+
+    $how_heard_map = array(
+        'travelled_previously' => 'Travelled with ATG previously',
+        'word_of_mouth'        => 'Word of mouth',
+        'referral_friend'      => 'Referral - friend',
+        'referral_family'      => 'Referral - family',
+        'internet'             => 'Internet search',
+        'travel_agent'         => 'Travel Agent',
+        'magazine'             => 'Magazine',
+        'newspaper'            => 'Newspaper',
+    );
+
+    $promo_code = isset($fields['promo_code']) ? trim($fields['promo_code']) : '';
+    $how_heard_raw = isset($fields['how_did_you_hear_about_us']) ? trim($fields['how_did_you_hear_about_us']) : '';
+    $how_heard = $how_heard_raw !== ''
+        ? (isset($how_heard_map[$how_heard_raw]) ? $how_heard_map[$how_heard_raw] : $how_heard_raw)
+        : 'Not specified';
+
+    $marketing_opt_in = !empty($fields['promotions_and_marketing_material']) ? 'Yes' : 'No';
+    $booking_conditions = !empty($fields['accept_atg_booking_conditions']) ? 'Yes' : 'No';
+    $privacy_policy = !empty($fields['accept_atg_privacy_policy']) ? 'Yes' : 'No';
+    $travel_insurance = !empty($fields['travel_insurance']) ? 'Yes' : 'No';
+
+    $html = '
+        <div class="booking-box full-width" style="border: 2px solid #e67e22; background: #fff8f0;">
+            <div style="' . $section_header_style . '">Additional Booking Information (Staff Only)</div>';
+
+    if ($ref !== '') {
+        $html .= '<div style="' . $row_style . '"><strong style="color: #333;">Reference:</strong> #' . esc_html($ref) . '</div>';
+    }
+
+    $html .= '
+            <div style="' . $row_style . '"><strong style="color: #333;">Promo Code Used:</strong> ' . ($promo_code !== '' ? esc_html($promo_code) : 'None') . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">How Did You Hear About Us:</strong> ' . esc_html($how_heard) . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Opted Into Marketing:</strong> ' . $marketing_opt_in . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Accepted Booking Conditions:</strong> ' . $booking_conditions . '</div>
+            <div style="' . $row_style . '"><strong style="color: #333;">Accepted Privacy Policy:</strong> ' . $privacy_policy . '</div>
+            <div><strong style="color: #333;">Confirmed Travel Insurance:</strong> ' . $travel_insurance . '</div>
+        </div>';
+
+    return $html;
+}
+
 function booking_summary_shortcode() {
     if (empty($_GET)) {
         return "<p>No booking details found.</p>";
     }
 
     global $wpdb;
-    // Collect data from query string
-    $trip_title = isset($_GET['triptitle']) ? esc_html($_GET['triptitle']) : '';
-    $departure = isset($_GET['_departure']) ? esc_html($_GET['_departure']) : '';
-    $deposit = isset($_GET['deposit']) ? esc_html($_GET['deposit']) : '';
-    $first_name = isset($_GET['first_name']) ? esc_html($_GET['first_name']) : '';
-    $last_name = isset($_GET['last_name']) ? esc_html($_GET['last_name']) : '';
-    $email = isset($_GET['email']) ? esc_html($_GET['email']) : '';
-    $phone = isset($_GET['phone']) ? esc_html($_GET['phone']) : '';
-    $room_type_raw = isset($_GET['select_room']) ? esc_html($_GET['select_room']) : '';
-    $passengers = isset($_GET['number_of_passenger']) ? esc_html($_GET['number_of_passenger']) : '';
-    $subtotal_raw = isset($_GET['sub_total']) ? $_GET['sub_total'] : '';
-    $passenger_data_raw = isset($_GET['passenger_data']) ? urldecode($_GET['passenger_data']) : '';
-    $additional_rooms_raw = isset($_GET['additional_rooms']) ? urldecode($_GET['additional_rooms']) : '';
+
+    // Start with whatever the redirect URL carried, then overlay the full submitted
+    // record (matched by email) - the DB record has every field the form collected.
+    $get_fields = array();
+    foreach ($_GET as $key => $value) {
+        $get_fields[$key] = is_string($value) ? wp_unslash($value) : $value;
+    }
+
+    $email = isset($get_fields['email']) ? sanitize_email($get_fields['email']) : '';
+    $submission = $email ? atg_get_latest_jetformbuilder_submission_by_email(31190, $email) : array();
+    $fields = !empty($submission) ? array_merge($get_fields, $submission) : $get_fields;
+
+    if (empty($fields)) {
+        return "<p>No booking details found.</p>";
+    }
+
+    $deposit = isset($fields['deposit']) ? esc_html($fields['deposit']) : '';
+    $trip_length = isset($fields['triptitle']) ? esc_html($fields['triptitle']) : '';
     $return_url = esc_url(home_url('/'));
 
-    // Format room type: Remove "0_" prefix, replace underscores with spaces, capitalize
-    $room_type = $room_type_raw;
-    if (!empty($room_type)) {
-        // Remove number prefix (e.g., "0_", "1_", etc.)
-        $room_type = preg_replace('/^\d+_/', '', $room_type);
-        // Replace underscores with spaces
-        $room_type = str_replace('_', ' ', $room_type);
-        // Capitalize each word
-        $room_type = ucwords($room_type);
-    }
+    // Logo, team name, phone, and contact email are editable under Settings > ATG
+    // Booking Settings instead of being hardcoded in this file.
+    $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
+    $logo_url = isset($settings['atg_logo_url']) ? esc_url($settings['atg_logo_url']) : '';
+    $team_name = isset($settings['atg_footer_team_name']) ? esc_html($settings['atg_footer_team_name']) : 'ATG Reservations';
+    $footer_phone = isset($settings['atg_footer_phone']) ? esc_html($settings['atg_footer_phone']) : '';
+    $footer_email = isset($settings['atg_footer_email']) ? esc_html($settings['atg_footer_email']) : '';
 
-    // Calculate total subtotal (main room + additional rooms)
-    $total_subtotal = 0;
-
-    // Extract numeric value from main subtotal
-    if (!empty($subtotal_raw)) {
-        $numeric_subtotal = preg_replace('/[^0-9.]/', '', $subtotal_raw);
-        $total_subtotal += floatval($numeric_subtotal);
-    }
-
-    // Parse additional rooms and sum their subtotals
-    if (!empty($additional_rooms_raw)) {
-        // Split by "Additional Room" to get individual room entries
-        $room_entries = preg_split('/Additional Room \d+:/', $additional_rooms_raw);
-
-        foreach ($room_entries as $entry) {
-            if (empty($entry)) continue;
-
-            // Find the subtotal amount after "= " in each room entry
-            // This ensures we only get the final total, not the per-unit price
-            if (preg_match('/=\s*[£$\x{00A3}]?\s*([\d,]+\.?\d*)/u', $entry, $match)) {
-                $clean_amount = str_replace(',', '', $match[1]);
-                $total_subtotal += floatval($clean_amount);
-            }
-        }
-    }
-
-    $subtotal = '£' . number_format($total_subtotal, 2);
-
-    // Process passenger and room information from additional_rooms parameter
-    $passenger_names = '';
-    if (!empty($additional_rooms_raw)) {
-        // Format the additional rooms data for better display
-        // Split by "Additional Room" to separate each room
-        $rooms = preg_split('/(Additional Room \d+:)/', $additional_rooms_raw, -1, PREG_SPLIT_DELIM_CAPTURE);
-
-        $formatted_rooms = '';
-        for ($i = 1; $i < count($rooms); $i += 2) {
-            if (isset($rooms[$i]) && isset($rooms[$i + 1])) {
-                $room_header = $rooms[$i];
-                $room_details = $rooms[$i + 1];
-                $formatted_rooms .= '<strong>' . esc_html($room_header) . '</strong>' . nl2br(esc_html($room_details)) . '<br><br>';
-            }
-        }
-
-        $passenger_names = $formatted_rooms;
-    }
-
-    // If still empty, show a message
-    if (empty($passenger_names)) {
-        $passenger_names = 'No additional room data available';
-    }
-
-    if($email){
-        $formId = 31190;
+    // Send the confirmation emails (once per record) using its own full submission data.
+    if ($email) {
         $fields_table = $wpdb->prefix . 'jet_fb_records_fields';
-        $results = get_jetformbuilder_no_notification_records_by_email($formId, $email);
-        foreach($results as $result){
-            $formFields = $result['form_fields'];
-            $emailContent = '<div class="booking-summary">
-            <div class="summary-logo-wrapper"><img class="booking-summary-logo" src="https://atg-oxford.co.uk/BZFRM22/wp-content/uploads/2020/09/logo25.png"></div>
-                <h2>Thank you for your deposit of £<span>' . $formFields['deposit'] . '</span>, your booking is now being processed by our Reservations Team.</h2>
-                <h4 class="booking-summary-deposit">Book ' . $formFields['triptitle'] . '</h4>
-                <div class="booking-grid">
-                    <div class="booking-box">
-                        <h3>Holiday Details</h3>
-                        <p><strong>Departure Date:</strong> ' . $formFields['_departure'] . '</p>
-                        <p><strong>Deposit:</strong> £' . $formFields['deposit'] . '</p>
-                    </div>
-                    <div class="booking-box">
-                        <h3>Lead Passenger Details</h3>
-                        <p><strong>Name:</strong> ' . $formFields['first_name'] . ' ' . $formFields['last_name'] . '</p>
-                        <p><strong>Email:</strong> ' . $email . '</p>
-                        <p><strong>Phone:</strong> ' . $formFields['phone'] . '</p>
-                    </div>
-                    <div class="booking-box full-width">
-                        <h3>Room Details</h3>
-                        <p><strong>Selected First Room:</strong> ' . rawRoomTypeToDisplayRoomType($formFields['select_room']) . '</p>
-                        <p><strong>Number of passenger in first room:</strong> ' . $formFields['number_of_passenger'] . '</p>
-                        <p><strong>Total Holiday cost:</strong> ' . rawSubtotalToDisplayTotal($formFields['sub_total'],$formFields['additional_rooms']) . '</p>
-                        <p><strong>Passengers` Data & Additional Passengers:</strong> <br>' . rawPassengerNamesToDisplayNames($formFields['additional_rooms']) . '</p>
-                    </div>
-                    <div class="booking-box full-width">
-                        <p>On occasions it may take a few days before we receive all the responses required (from hotels etc) to confirm a booking. As soon as all the arrangements are in place, our Reservations Team look forward to sending you our Confirmation. In the meantime if you have and questions relating to your booking please do not hesitate to contact us.</p>
-                        <p><strong>You have chosen an excellent trip and we very much look forward to welcoming you.</strong></p>
-                        <p><strong>ATG Reservations</strong></p>
-                        <p><strong>Tel: +44 (0)1865 315678</strong></p>
-                        <p><strong>Email: trip-enquiry@atg-oxford.com</strong></p>
-                    </div>
-                </div>
-            </div>';
-            $wpdb->insert($fields_table,array('record_id' => $result['id'],'field_name' => 'email_notification','field_value' => 'yes'),array('%d', '%s', '%s'));
+        $results = get_jetformbuilder_no_notification_records_by_email(31190, $email);
+        foreach ($results as $result) {
+            $ref = $result['id']; // DB record ID, used as the booking reference
 
-            $subject = 'Booking is now being processed';
+            // Atomic lock: add_option() fails (returns false) if the option name already
+            // exists, because wp_options.option_name has a UNIQUE key at the DB level.
+            // This closes the race window in the "check not-yet-notified, then mark
+            // notified" logic above - if two near-simultaneous requests both reach this
+            // point for the same record, only the first one wins the lock and sends.
+            if (!add_option('atg_booking_email_lock_' . $ref, time(), '', 'no')) {
+                continue;
+            }
+
+            $formFields = $result['form_fields'];
+
+            $emailDeposit = isset($formFields['deposit']) ? esc_html($formFields['deposit']) : '';
+
+            // Resolve the tour name the same way the page does (post title beats the raw triptitle field)
+            $email_post_id = 0;
+            if (!empty($formFields['post_id'])) {
+                $email_post_id = intval($formFields['post_id']);
+            } elseif (!empty($formFields['__queried_post_id'])) {
+                $email_post_id = intval($formFields['__queried_post_id']);
+            }
+            // Keep this raw (unescaped) - it's used in the plain-text subject line as well
+            // as the HTML body, so it gets esc_html()'d only where it's inserted into HTML.
+            $tour_name = $email_post_id ? get_the_title($email_post_id) : '';
+            if (empty($tour_name)) {
+                $tour_name = isset($formFields['triptitle']) ? $formFields['triptitle'] : 'Tour';
+            }
+
+            // "Dear <<Title>> <<Surname>>" greeting
+            $greet_title = isset($formFields['title_field']) ? trim($formFields['title_field']) : '';
+            $greet_surname = isset($formFields['last_name']) ? trim($formFields['last_name']) : '';
+            $greeting_name = trim($greet_title . ' ' . $greet_surname);
+            $greeting = $greeting_name !== '' ? 'Dear ' . esc_html($greeting_name) . ',' : 'Dear Customer,';
+
+            // Full lead name, for the internal subject line
+            $lead_full_name = trim(preg_replace(
+                '/\s+/',
+                ' ',
+                ($formFields['title_field'] ?? '') . ' ' . ($formFields['first_name'] ?? '') . ' ' . ($formFields['last_name'] ?? '')
+            ));
+
+            $footer_html = '
+                <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #ddd; text-align: center; color: #666; font-size: 13px;">
+                    <p style="margin: 4px 0;"><strong>' . $team_name . '</strong></p>
+                    <p style="margin: 4px 0;">Tel: ' . $footer_phone . '</p>
+                    <p style="margin: 4px 0;">Email: ' . $footer_email . '</p>
+                </div>';
+
+            $body_common = '
+                <div class="summary-logo-wrapper"><img class="booking-summary-logo" src="' . $logo_url . '"></div>
+                <p>' . $greeting . '</p>
+                <h2>Thank you for your deposit of £<span>' . $emailDeposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
+                <h4 class="booking-summary-deposit">Book ' . esc_html($tour_name) . '</h4>
+                ' . atg_render_booking_detail_boxes($formFields);
+
+            // Customer copy: booking details + footer
+            $emailContentCustomer = '<div class="booking-summary">' . $body_common . $footer_html . '</div>';
+
+            // Internal copy: same details + a staff-only box (promo code, consent checkboxes,
+            // marketing opt-in, how they heard about us) so Reservations has everything to process it
+            $emailContentInternal = '<div class="booking-summary">' . $body_common . atg_render_staff_only_booking_info($formFields, $ref) . $footer_html . '</div>';
+
+            $wpdb->insert($fields_table, array('record_id' => $result['id'], 'field_name' => 'email_notification', 'field_value' => 'yes'), array('%d', '%s', '%s'));
+
             $headers = array('Content-Type: text/html; charset=UTF-8');
-            wp_mail($email, $subject, $emailContent, $headers);
-            wp_mail('trip-enquiry@atg-oxford.com', $subject, $emailContent, $headers);
-            wp_mail('jessicaj@atg-oxford.com', $subject, $emailContent, $headers);
+            $client_subject = 'Booking Confirmation - #' . $ref . ' - ' . $tour_name;
+            $internal_subject = 'New Booking Notification - #' . $ref . ' - ' . $tour_name . ' - ' . $lead_full_name;
+
+            wp_mail($email, $client_subject, $emailContentCustomer, $headers);
+
+            // Internal recipients are editable under Settings > ATG Booking Settings
+            // (comma-separated list), rather than hardcoded email addresses here.
+            $internal_recipients = function_exists( 'atg_get_internal_notification_emails' )
+                ? atg_get_internal_notification_emails()
+                : array( 'trip-enquiry@atg-oxford.com' );
+            foreach ( $internal_recipients as $internal_recipient ) {
+                wp_mail($internal_recipient, $internal_subject, $emailContentInternal, $headers);
+            }
         }
     }
 
-
-    // Build HTML
+    // Build HTML for the page
     $output = '
     <div class="booking-summary">
-	<div class="summary-logo-wrapper"><img class="booking-summary-logo" src="https://atg-oxford.co.uk/BZFRM22/wp-content/uploads/2020/09/logo25.png"></div>
+	<div class="summary-logo-wrapper"><img class="booking-summary-logo" src="' . $logo_url . '"></div>
 		<h2>Thank you for your deposit of £<span>' . $deposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
-		<h4 class="booking-summary-deposit">Book ' . $trip_title . '</h4>
-        <div class="booking-grid">
-            <div class="booking-box">
-                <h3>Holiday Details</h3>
-                <p><strong>Departure Date:</strong> ' . $departure . '</p>
-                <p><strong>Deposit:</strong> £' . $deposit . '</p>
-            </div>
-            <div class="booking-box">
-                <h3>Lead Passenger Details</h3>
-                <p><strong>Name:</strong> ' . $first_name . ' ' . $last_name . '</p>
-                <p><strong>Email:</strong> ' . $email . '</p>
-                <p><strong>Phone:</strong> ' . $phone . '</p>
-            </div>
-            <div class="booking-box full-width">
-                <h3>Room Details</h3>
-                <p><strong>Selected First Room:</strong> ' . $room_type . '</p>
-                <p><strong>Number of passenger in first room:</strong> ' . $passengers . '</p>
-                <p><strong>Total Holiday cost:</strong> ' . $subtotal . '</p>
-                <p><strong>Passengers` Data & Additional Passengers:</strong> <br>' . $passenger_names . '</p>
-            </div>
-            <div class="booking-box full-width">
-                <p>On occasions it may take a few days before we receive all the responses required (from hotels etc) to confirm a booking. As soon as all the arrangements are in place, our Reservations Team look forward to sending you our Confirmation. In the meantime if you have and questions relating to your booking please do not hesitate to contact us.</p>
-                <p><strong>You have chosen an excellent trip and we very much look forward to welcoming you.</strong></p>
-                <p><strong>ATG Reservations</strong></p>
-                <p><strong>Tel: +44 (0)1865 315678</strong></p>
-                <p><strong>Email: trip-enquiry@atg-oxford.com</strong></p>
-            </div>
-        </div>
+		<h4 class="booking-summary-deposit">Book ' . $trip_length . '</h4>
+        ' . atg_render_booking_detail_boxes($fields) . '
 		<div class="summary-btn">
 			<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-shrink" href="' . $return_url . '">
 			<span class="elementor-button-content-wrapper">
@@ -359,12 +579,19 @@ function booking_summary_shortcode() {
 add_shortcode('booking_summary', 'booking_summary_shortcode');
 
 function rawRoomTypeToDisplayRoomType($room_type = ''){
-    if (!empty($room_type)) {
-        $room_type = preg_replace('/^\d+_/', '', $room_type);
-        $room_type = str_replace('_', ' ', $room_type);
-        $room_type = ucwords($room_type);
+    $room_type = (string) $room_type;
+    if ($room_type === '') {
+        return '';
     }
-    return $room_type;
+    // Mirrors the same substring checks used in generateCompleteSummary() (jetform-enhancement.js)
+    // so both pages label rooms identically.
+    if (strpos($room_type, 'double_room') !== false) return 'Double Room';
+    if (strpos($room_type, 'twin_room') !== false) return 'Twin Room';
+    if (strpos($room_type, 'single_occupancy') !== false) return 'Single Occupancy';
+    if (strpos($room_type, 'double_upgrade') !== false) return 'Double Room (Upgrade)';
+    if (strpos($room_type, 'twin_room_upgrade') !== false) return 'Twin Room (Upgrade)';
+    if (strpos($room_type, 'single_occupancy_upgrade') !== false) return 'Single Occupancy (Upgrade)';
+    return 'Unknown';
 }
 
 function rawSubtotalToDisplayTotal($subtotal_raw = '', $additional_rooms_raw = ''){
