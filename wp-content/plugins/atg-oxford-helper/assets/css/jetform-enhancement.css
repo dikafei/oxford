@@ -225,3 +225,91 @@ div.dialog-widget-content{
 .room-number-label--first {
     margin-top: 0;
 }
+
+/* ================= BOOKING SUMMARY =================
+   Shared by the review popup (generateCompleteSummary() output inside
+   p.complete_summary) AND the thank-you page / confirmation emails
+   (atg_render_booking_detail_boxes() in frontend-data.php). Both sides emit
+   the exact same class names on purpose, so this is the one place to style
+   both - no more duplicating rules per page. */
+
+.summary-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.summary-inner-wrapper {
+    flex: 1;
+    min-width: 300px;
+}
+
+.summary-container {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    background: #f9f9f9;
+}
+
+.summary-title {
+    margin-bottom: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #2c3e50;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 5px;
+}
+
+.summary-trip-selected,
+.summary-trip-length,
+.summary-departure-date,
+.summary-lp-name,
+.summary-lp-email,
+.summary-lp-phone {
+    margin-bottom: 8px;
+}
+
+.summary-room-details,
+.summary-additional-requests,
+.summary-staff-only,
+.summary-note {
+    margin-top: 20px;
+}
+
+.summary-room-details-container {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin: 10px 0;
+    background: #f9f9f9;
+}
+
+.summary-rd-room-type,
+.summary-rd-passengers,
+.summary-rd-subtotal {
+    margin-bottom: 8px;
+}
+
+/* Staff-only box (internal notification email only) gets an accent color so it
+   stands out from the customer-facing sections above it. */
+.summary-staff-only .summary-container {
+    border-color: #e67e22;
+    background: #fff8f0;
+}
+
+.summary-so-reference,
+.summary-so-promo-code,
+.summary-so-how-heard,
+.summary-so-marketing,
+.summary-so-booking-conditions,
+.summary-so-privacy-policy {
+    margin-bottom: 8px;
+}
+
+.summary-note .summary-container p {
+    margin: 0 0 8px;
+}
+
+.summary-note .summary-container p:last-child {
+    margin-bottom: 0;
+}

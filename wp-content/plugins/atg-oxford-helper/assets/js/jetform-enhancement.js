@@ -132,6 +132,26 @@ document.addEventListener('DOMContentLoaded', function () {
         return window.jetformDatepickerConfig.blockedDates.length > 0;
     }
     
+    // ================= DATE DISPLAY FORMAT (dd/mm/yyyy) =================
+    // Every date the customer/staff actually SEES should read as dd/mm/yyyy.
+    // Underlying stored/submitted values (e.g. the _departure field) stay in
+    // ISO "Y-m-d" format everywhere - this only reformats for display.
+    function formatDateForDisplay(dateStr) {
+        if (!dateStr) return dateStr;
+        const isoMatch = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (isoMatch) {
+            return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+        }
+        return dateStr;
+    }
+
+    function formatDateObjectForDisplay(dateObj) {
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const year = dateObj.getFullYear();
+        return `${day}/${month}/${year}`;
+    }
+
     // Function to format date ranges for display
     function formatDateRange(startDateStr, endDateStr) {
         // Handle both date formats: "2025-09-18" and "2025-09-18T00:00"
@@ -155,10 +175,9 @@ document.addEventListener('DOMContentLoaded', function () {
             displayEndDate = startDate;
         }
         
-        const options = { year: 'numeric', month: 'short', day: 'numeric' };
-        const formattedStart = displayStartDate.toLocaleDateString('en-US', options);
-        const formattedEnd = displayEndDate.toLocaleDateString('en-US', options);
-        
+        const formattedStart = formatDateObjectForDisplay(displayStartDate);
+        const formattedEnd = formatDateObjectForDisplay(displayEndDate);
+
         return `${formattedStart} to ${formattedEnd}`;
     }
     
@@ -439,28 +458,30 @@ document.addEventListener('DOMContentLoaded', function () {
             disable: disabledDates,
             minDate: "today",
             onReady: function(selectedDates, dateStr, instance) {
-                
-                
-                // Set initial value if exists
+
+
+                // Set initial value if exists - originalInput stays ISO (Y-m-d) for
+                // storage/validation, fakeInput shows dd/mm/yyyy to the customer.
                 if (originalInput.value) {
-                    fakeInput.value = originalInput.value;
+                    fakeInput.value = formatDateForDisplay(originalInput.value);
                 }
-                
+
                 // Store instance for later access
                 window.jetformDatepickerConfig.flatpickrInstances.set(instanceId, instance);
-                
+
                 // OPEN IMMEDIATELY on first click
                 setTimeout(() => {
                     instance.open();
                 }, 50);
             },
             onChange: function(selectedDates, dateStr, instance) {
-               
+
                 if (selectedDates.length > 0) {
-                    // Update the hidden input value
+                    // Update the hidden input value (ISO, unchanged) and show
+                    // dd/mm/yyyy in the visible field.
                     originalInput.value = dateStr;
-                    fakeInput.value = dateStr;
-                    
+                    fakeInput.value = formatDateForDisplay(dateStr);
+
                     // Trigger change event for form validation
                     const event = new Event('change', { bubbles: true });
                     originalInput.dispatchEvent(event);
@@ -1488,6 +1509,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 const instance = flatpickr(expectedDepartureInput, {
                     dateFormat: "Y-m-d",
+                    altInput: true,
+                    altFormat: "d/m/Y",
                     minDate: tomorrow,
                     disableMobile: true,
                     allowInput: false,
@@ -1532,6 +1555,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 const instance = flatpickr(expectedDepartureInput, {
                     dateFormat: "Y-m-d",
+                    altInput: true,
+                    altFormat: "d/m/Y",
                     minDate: tomorrow,
                     disableMobile: true,
                     allowInput: false,
@@ -2436,7 +2461,7 @@ document.addEventListener("DOMContentLoaded", function () {
                                 )
                                 : (values['triptitle'] || 'N/A')
                         }</div>
-                        <div class="summary-departure-date"><strong>Departure Date:</strong> ${values['_departure'] || 'N/A'}</div>
+                        <div class="summary-departure-date"><strong>Departure Date:</strong> ${formatDateForDisplay(values['_departure']) || 'N/A'}</div>
                     </div>
                 </div>
 

@@ -252,18 +252,36 @@ function atg_get_latest_jetformbuilder_submission_by_email($form_id, $email) {
 }
 
 /**
+ * Converts a stored ISO date ("Y-m-d", e.g. "2026-07-16") to dd/mm/yyyy for display.
+ * The stored/submitted value is intentionally left as ISO everywhere else (safe for
+ * sorting/parsing) - this is a display-only conversion.
+ *
+ * @param string $date_str Raw stored date value.
+ * @return string dd/mm/yyyy, or the original string unchanged if it isn't a Y-m-d date.
+ */
+function atg_format_date_for_display($date_str) {
+    $date_str = trim((string) $date_str);
+    if ($date_str === '') {
+        return '';
+    }
+    $date = DateTime::createFromFormat('Y-m-d', $date_str);
+    if ($date && $date->format('Y-m-d') === $date_str) {
+        return $date->format('d/m/Y');
+    }
+    return $date_str;
+}
+
+/**
  * Render the "Holiday Details / Lead Passenger Details / Room Details / Additional
- * Requests" boxes, matching the same room-by-room card layout used on the booking
- * review page's summary (generateCompleteSummary() in jetform-enhancement.js), so
- * both pages look the same in the detail section.
+ * Requests" boxes. Uses the exact same class names as the review page's summary
+ * (generateCompleteSummary() in jetform-enhancement.js) so both pages - and the
+ * confirmation emails - can be styled from one shared set of CSS rules instead of
+ * duplicating styles per page.
  *
  * @param array $fields Associative array of submitted field_name => field_value.
- * @return string HTML for the ".booking-grid" wrapper (without the closing note box).
+ * @return string HTML for the ".summary-wrapper" + related sections.
  */
 function atg_render_booking_detail_boxes($fields) {
-    $section_header_style = 'margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;';
-    $row_style = 'margin-bottom: 8px;';
-
     // ---- Holiday Details ----
     $post_id = 0;
     if (!empty($fields['post_id'])) {
@@ -276,8 +294,7 @@ function atg_render_booking_detail_boxes($fields) {
     if (empty($trip_selected)) {
         $trip_selected = $trip_length;
     }
-    $departure = isset($fields['_departure']) ? esc_html($fields['_departure']) : '';
-    $deposit = isset($fields['deposit']) ? esc_html($fields['deposit']) : '';
+    $departure = isset($fields['_departure']) ? esc_html(atg_format_date_for_display($fields['_departure'])) : '';
 
     // ---- Lead Passenger Details ----
     $lead_title = isset($fields['title_field']) ? $fields['title_field'] : '';
@@ -318,12 +335,12 @@ function atg_render_booking_detail_boxes($fields) {
         }
 
         $rooms_html .= '
-            <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f9f9f9;">
-                <div style="margin-bottom: 8px;"><strong style="color: #333;">Room Type:</strong> ' . esc_html($room_type) . '</div>
-                <div style="margin-bottom: 8px;"><strong style="color: #333;">Passengers:</strong> ' . esc_html($passenger_count) . '</div>
-                <div style="margin-bottom: 8px;"><strong style="color: #333;">Subtotal:</strong> ' . $subtotal . '</div>
-                <div><strong style="color: #333;">Passenger Names:</strong> ' . esc_html(implode(', ', $names)) . '</div>
-            </div>
+                <div class="summary-room-details-container">
+                    <div class="summary-rd-room-type"><strong>Room Type:</strong> ' . esc_html($room_type) . '</div>
+                    <div class="summary-rd-passengers"><strong>Passengers:</strong> ' . esc_html($passenger_count) . '</div>
+                    <div class="summary-rd-subtotal"><strong>Subtotal:</strong> ' . $subtotal . '</div>
+                    <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ' . esc_html(implode(', ', $names)) . '</div>
+                </div>
         ';
 
         $i++;
@@ -333,31 +350,45 @@ function atg_render_booking_detail_boxes($fields) {
         $rooms_html = '<div>No room data available</div>';
     }
 
-    $html = '<div class="booking-grid">
-        <div class="booking-box">
-            <div style="' . $section_header_style . '">Holiday Details</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Trip Length:</strong> ' . $trip_length . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Departure Date:</strong> ' . $departure . '</div>
-        </div>
-        <div class="booking-box">
-            <div style="' . $section_header_style . '">Lead Passenger Details</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Name:</strong> ' . $lead_name . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Email:</strong> ' . $email_display . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Phone:</strong> ' . $phone . '</div>
-            <div><strong style="color: #333;">Address:</strong> ' . $address . '</div>
-        </div>
-        <div class="booking-box full-width">
-            <div style="' . $section_header_style . '">Room Details</div>
-            ' . $rooms_html . '
-        </div>';
+    $html = '
+            <div class="summary-wrapper">
+                <div class="summary-holiday-details summary-inner-wrapper">
+                    <div class="summary-container">
+                        <div class="summary-title">Holiday Details</div>
+                        <div class="summary-trip-selected"><strong>Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
+                        <div class="summary-trip-length"><strong>Trip Length:</strong> ' . $trip_length . '</div>
+                        <div class="summary-departure-date"><strong>Departure Date:</strong> ' . $departure . '</div>
+                    </div>
+                </div>
+
+                <div class="summary-lead-passenger summary-inner-wrapper">
+                    <div class="summary-container">
+                        <div class="summary-title">Lead Passenger Details</div>
+                        <div class="summary-lp-name"><strong>Name:</strong> ' . $lead_name . '</div>
+                        <div class="summary-lp-email"><strong>Email:</strong> ' . $email_display . '</div>
+                        <div class="summary-lp-phone"><strong>Phone:</strong> ' . $phone . '</div>
+                        <div class="summary-lp-address"><strong>Address:</strong> ' . $address . '</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="summary-room-details">
+                <div class="summary-container">
+                    <div class="summary-title">Room Details</div>
+                    ' . $rooms_html . '
+                </div>
+            </div>
+    ';
 
     if (!empty($additional_requests)) {
         $html .= '
-        <div class="booking-box full-width">
-            <div style="' . $section_header_style . '">Additional Requests</div>
-            <div>' . nl2br(esc_html($additional_requests)) . '</div>
-        </div>';
+            <div class="summary-additional-requests">
+                <div class="summary-container">
+                    <div class="summary-title">Additional Requests</div>
+                    <div>' . nl2br(esc_html($additional_requests)) . '</div>
+                </div>
+            </div>
+        ';
     }
 
     // Note message, closing line, team name, phone, and email are all editable
@@ -370,14 +401,16 @@ function atg_render_booking_detail_boxes($fields) {
     $footer_email = isset($settings['atg_footer_email']) ? $settings['atg_footer_email'] : '';
 
     $html .= '
-        <div class="booking-box full-width">
-            <p>' . nl2br(esc_html($note_message)) . '</p>
-            <p><strong>' . esc_html($note_closing_line) . '</strong></p>
-            <p><strong>' . esc_html($team_name) . '</strong></p>
-            <p><strong>Tel: ' . esc_html($footer_phone) . '</strong></p>
-            <p><strong>Email: ' . esc_html($footer_email) . '</strong></p>
-        </div>
-    </div>';
+            <div class="summary-note">
+                <div class="summary-container">
+                    <p>' . nl2br(esc_html($note_message)) . '</p>
+                    <p><strong>' . esc_html($note_closing_line) . '</strong></p>
+                    <p><strong>' . esc_html($team_name) . '</strong></p>
+                    <p><strong>Tel: ' . esc_html($footer_phone) . '</strong></p>
+                    <p><strong>Email: ' . esc_html($footer_email) . '</strong></p>
+                </div>
+            </div>
+    ';
 
     return $html;
 }
@@ -386,15 +419,13 @@ function atg_render_booking_detail_boxes($fields) {
  * Renders a "staff only" box with everything a customer-facing summary leaves out
  * (promo code, consent checkboxes, marketing opt-in, how they heard about us) so the
  * internal booking notification email gives Reservations the full picture to process it.
+ * Uses the same "summary-*" class convention as atg_render_booking_detail_boxes().
  *
  * @param array      $fields Associative array of submitted field_name => field_value.
  * @param int|string $ref    Booking reference (DB record ID) to display, if known.
- * @return string HTML for a ".booking-box full-width" section.
+ * @return string HTML for a ".summary-staff-only" section.
  */
 function atg_render_staff_only_booking_info($fields, $ref = '') {
-    $section_header_style = 'margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;';
-    $row_style = 'margin-bottom: 8px;';
-
     $how_heard_map = array(
         'travelled_previously' => 'Travelled with ATG previously',
         'word_of_mouth'        => 'Word of mouth',
@@ -418,21 +449,24 @@ function atg_render_staff_only_booking_info($fields, $ref = '') {
     $travel_insurance = !empty($fields['travel_insurance']) ? 'Yes' : 'No';
 
     $html = '
-        <div class="booking-box full-width" style="border: 2px solid #e67e22; background: #fff8f0;">
-            <div style="' . $section_header_style . '">Additional Booking Information (Staff Only)</div>';
+            <div class="summary-staff-only">
+                <div class="summary-container">
+                    <div class="summary-title">Additional Booking Information (Staff Only)</div>';
 
     if ($ref !== '') {
-        $html .= '<div style="' . $row_style . '"><strong style="color: #333;">Reference:</strong> #' . esc_html($ref) . '</div>';
+        $html .= '<div class="summary-so-reference"><strong>Reference:</strong> #' . esc_html($ref) . '</div>';
     }
 
     $html .= '
-            <div style="' . $row_style . '"><strong style="color: #333;">Promo Code Used:</strong> ' . ($promo_code !== '' ? esc_html($promo_code) : 'None') . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">How Did You Hear About Us:</strong> ' . esc_html($how_heard) . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Opted Into Marketing:</strong> ' . $marketing_opt_in . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Accepted Booking Conditions:</strong> ' . $booking_conditions . '</div>
-            <div style="' . $row_style . '"><strong style="color: #333;">Accepted Privacy Policy:</strong> ' . $privacy_policy . '</div>
-            <div><strong style="color: #333;">Confirmed Travel Insurance:</strong> ' . $travel_insurance . '</div>
-        </div>';
+                    <div class="summary-so-promo-code"><strong>Promo Code Used:</strong> ' . ($promo_code !== '' ? esc_html($promo_code) : 'None') . '</div>
+                    <div class="summary-so-how-heard"><strong>How Did You Hear About Us:</strong> ' . esc_html($how_heard) . '</div>
+                    <div class="summary-so-marketing"><strong>Opted Into Marketing:</strong> ' . $marketing_opt_in . '</div>
+                    <div class="summary-so-booking-conditions"><strong>Accepted Booking Conditions:</strong> ' . $booking_conditions . '</div>
+                    <div class="summary-so-privacy-policy"><strong>Accepted Privacy Policy:</strong> ' . $privacy_policy . '</div>
+                    <div class="summary-so-travel-insurance"><strong>Confirmed Travel Insurance:</strong> ' . $travel_insurance . '</div>
+                </div>
+            </div>
+    ';
 
     return $html;
 }
