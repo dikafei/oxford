@@ -1617,35 +1617,18 @@ document.addEventListener("DOMContentLoaded", function () {
             // Create button container
             const buttonContainer = document.createElement("div");
             buttonContainer.className = "additional-room-buttons";
-            buttonContainer.style.display = "flex";
-            buttonContainer.style.gap = "10px";
-            buttonContainer.style.marginBottom = "20px";
 
             // Add Room button
             const addBtn = document.createElement("button");
             addBtn.type = "button";
             addBtn.className = "add-room-btn";
             addBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M13.7 2.3C12.1.8 10.1 0 8 0S3.9.8 2.3 2.3 0 5.9 0 8s.8 4.1 2.3 5.7S5.9 16 8 16s4.1-.8 5.7-2.3S16 10.1 16 8s-.8-4.1-2.3-5.7zM8 14.8c-3.7 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3.1 6.8-6.8 6.8zm.6-7.4h2.8v1.2H8.6v2.8H7.4V8.6H4.6V7.4h2.8V4.6h1.2v2.8z"></path></svg><span class="add-room-btn__label">Add Room</span>`;
-            addBtn.style.padding = "0";
-            addBtn.style.backgroundColor = "transparent";
-            addBtn.style.border = "none";
-            addBtn.style.cursor = "pointer";
-            addBtn.style.display = "flex";
-            addBtn.style.alignItems = "center";
-            addBtn.style.gap = "6px";
 
             // Remove Room button (initially hidden)
             const removeBtn = document.createElement("button");
             removeBtn.type = "button";
             removeBtn.className = "remove-room-btn";
             removeBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M8 16c-2.1 0-4.1-.8-5.7-2.3S0 10.1 0 8s.8-4.1 2.3-5.7S5.9 0 8 0s4.1.8 5.7 2.3S16 5.9 16 8s-.8 4.1-2.3 5.7S10.1 16 8 16zM8 1.2c-3.7 0-6.8 3-6.8 6.8s3 6.8 6.8 6.8 6.8-3 6.8-6.8S11.7 1.2 8 1.2zm3.4 6.2H4.6v1.2h6.9V7.4z"></path></svg><span class="remove-room-btn__label">Remove Room</span>`;
-            removeBtn.style.padding = "0";
-            removeBtn.style.backgroundColor = "transparent";
-            removeBtn.style.border = "none";
-            removeBtn.style.cursor = "pointer";
-            removeBtn.style.display = "none";
-            removeBtn.style.alignItems = "center";
-            removeBtn.style.gap = "6px";
 
             buttonContainer.appendChild(addBtn);
             buttonContainer.appendChild(removeBtn);
@@ -2404,11 +2387,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Upgrade)";
 
                 roomsHtml += `
-                    <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 10px 0; background: #f9f9f9;">
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Room Type:</strong> ${roomType}</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Passengers:</strong> ${values["number_of_passenger" + suffix]}</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Subtotal:</strong> ${values["sub_total" + suffix]}</div>
-                        <div><strong style="color: #333;">Passenger Names:</strong> ${passengersHtml.slice(2)}</div>
+                    <div class="summary-room-details-container">
+                        <div class="summary-rd-room-type"><strong>Room Type:</strong> ${roomType}</div>
+                        <div class="summary-rd-passengers"><strong>Passengers:</strong> ${values["number_of_passenger" + suffix]}</div>
+                        <div class="summary-rd-subtotal"><strong>Subtotal:</strong> ${values["sub_total" + suffix]}</div>
+                        <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ${passengersHtml.slice(2)}</div>
                     </div>
                 `;
                 i++;
@@ -2428,9 +2411,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const additionalRequestsHtml = additionalRequests
             ? `
-            <div style="margin-top: 20px;">
-                <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                    <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Additional Requests</div>
+            <div class="summary-additional-requests">
+                <div class="summary-container">
+                    <div class="summary-title">Additional Requests</div>
                     <div>${additionalRequests}</div>
                 </div>
             </div>
@@ -2438,12 +2421,12 @@ document.addEventListener("DOMContentLoaded", function () {
             : '';
 
         const summaryHtml = `
-            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
-                <div style="flex: 1; min-width: 300px;">
-                    <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                        <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Holiday Details</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Trip Selected:</strong> ${atg_tour_data.page_name || 'N/A'}</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Trip Length:</strong> ${
+            <div class="summary-wrapper">
+                <div class="summary-holiday-details summary-inner-wrapper">
+                    <div class="summary-container">
+                        <div class="summary-title">Holiday Details</div>
+                        <div class="summary-trip-selected"><strong>Trip Selected:</strong> ${atg_tour_data.page_name || 'N/A'}</div>
+                        <div class="summary-trip-length"><strong>Trip Length:</strong> ${
                             typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")
                                 ? (
                                     (() => {
@@ -2453,24 +2436,24 @@ document.addEventListener("DOMContentLoaded", function () {
                                 )
                                 : (values['triptitle'] || 'N/A')
                         }</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Departure Date:</strong> ${values['_departure'] || 'N/A'}</div>
+                        <div class="summary-departure-date"><strong>Departure Date:</strong> ${values['_departure'] || 'N/A'}</div>
                     </div>
                 </div>
 
-                <div style="flex: 1; min-width: 300px;">
-                    <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                        <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Lead Passenger Details</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Name:</strong> ${leadName || 'N/A'}</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Email:</strong> ${values['email'] || 'N/A'}</div>
-                        <div style="margin-bottom: 8px;"><strong style="color: #333;">Phone:</strong> ${values['phone'] || 'N/A'}</div>
-                        <div><strong style="color: #333;">Address:</strong> ${leadAddress || 'N/A'}</div>
+                <div class="summary-lead-passenger summary-inner-wrapper">
+                    <div class="summary-container">
+                        <div class="summary-title">Lead Passenger Details</div>
+                        <div class="summary-lp-name"><strong>Name:</strong> ${leadName || 'N/A'}</div>
+                        <div class="summary-lp-email"><strong>Email:</strong> ${values['email'] || 'N/A'}</div>
+                        <div class="summary-lp-phone"><strong>Phone:</strong> ${values['phone'] || 'N/A'}</div>
+                        <div class="summary-lp-address"><strong>Address:</strong> ${leadAddress || 'N/A'}</div>
                     </div>
                 </div>
             </div>
 
-            <div style="margin-top: 20px;">
-                <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; background: #f9f9f9;">
-                    <div style="margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Room Details</div>
+            <div class="summary-room-details">
+                <div class="summary-container">
+                    <div class="summary-title">Room Details</div>
                     ${roomsHtml}
                 </div>
             </div>

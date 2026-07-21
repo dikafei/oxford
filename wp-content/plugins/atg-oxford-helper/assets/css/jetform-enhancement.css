@@ -162,10 +162,10 @@ div.dialog-widget-content{
 }
 
 .custom-block-review-page{
-    border: 1px solid #ddd;
+    border: 1px solid #dae3eb;
     border-radius: 5px !important;
     padding: 15px;
-    background: #f9f9f9;
+    background: #f6f8fb;
 }
 
 .custom-deposit-field #deposit{
@@ -191,10 +191,10 @@ div.dialog-widget-content{
 /* Group "Room Details" (primary room) + additional rooms into one shared card,
    so "Room 1", "Room 2", "Room 3"... read as part of the same section. */
 .room-details-card {
-    border: 1px solid #ddd;
+    border: 1px solid #dae3eb;
     border-radius: 5px;
-    background: #f9f9f9;
-    padding: 15px;
+    background: #f6f8fb;
+    padding: 24px;
     margin-bottom: 20px;
 }
 
@@ -217,16 +217,11 @@ div.dialog-widget-content{
 }
 
 .room-number-label {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 15px !important;
     color: #2c3e50;
     margin: 25px 0 12px;
-    padding-top: 20px;
-    border-top: 1px solid #ddd;
 }
 
 .room-number-label--first {
     margin-top: 0;
-    padding-top: 0;
-    border-top: none;
 }
