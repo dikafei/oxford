@@ -23,6 +23,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
 });
 
+// Native <input type="date"> fields (used when a trip has no blocked_dates /
+// departure_escorted data to drive the custom Flatpickr picker further below -
+// e.g. _departure rendered plain by JetFormBuilder) only open the browser's
+// calendar picker from the small calendar icon in some browsers (Firefox,
+// Safari). Clicking anywhere in the field should open it, so trigger
+// showPicker() on click. Has no effect on trips where the custom datepicker
+// takes over, since that logic hides this input (display: none) instead.
+document.addEventListener('click', function(e) {
+    const dateInput = e.target.closest('input[type="date"]');
+    if (dateInput && !dateInput.disabled && !dateInput.readOnly && typeof dateInput.showPicker === 'function') {
+        try {
+            dateInput.showPicker();
+        } catch (err) {
+            // showPicker() throws if called outside a user gesture or while already open - ignore
+        }
+    }
+});
+
 (function() {
     // Check if we've already initialized to prevent duplicate execution
     if (window.jetformDatepickerInitialized) {
