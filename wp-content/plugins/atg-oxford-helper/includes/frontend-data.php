@@ -651,13 +651,16 @@ function rawRoomTypeToDisplayRoomType($room_type = ''){
         return '';
     }
     // Mirrors the same substring checks used in generateCompleteSummary() (jetform-enhancement.js)
-    // so both pages label rooms identically.
-    if (strpos($room_type, 'double_room') !== false) return 'Double Room';
-    if (strpos($room_type, 'twin_room') !== false) return 'Twin Room';
-    if (strpos($room_type, 'single_occupancy') !== false) return 'Single Occupancy';
+    // so both pages label rooms identically. Upgrade variants must be checked first -
+    // "twin_room_upgrade" and "single_occupancy_upgrade" both contain the base room's
+    // string too, so checking the base first would always match it and never reach
+    // the upgrade case.
     if (strpos($room_type, 'double_upgrade') !== false) return 'Double Room (Upgrade)';
     if (strpos($room_type, 'twin_room_upgrade') !== false) return 'Twin Room (Upgrade)';
-    if (strpos($room_type, 'single_occupancy_upgrade') !== false) return 'Single Occupancy (Upgrade)';
+    if (strpos($room_type, 'single_occupancy_upgrade') !== false) return 'Single Occupancy (Double Room) (Upgrade)';
+    if (strpos($room_type, 'double_room') !== false) return 'Double Room';
+    if (strpos($room_type, 'twin_room') !== false) return 'Twin Room';
+    if (strpos($room_type, 'single_occupancy') !== false) return 'Single Occupancy (Double Room)';
     return 'Unknown';
 }
 

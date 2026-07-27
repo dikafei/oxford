@@ -159,7 +159,7 @@
                         <option value="SelectRoom">Select Room</option>
                         <option value="0_double_room" data-price="${tourData.pricing.double}" data-room-type="double_room">Double Room - £${tourData.pricing.double}</option>
                         <option value="0_twin_room" data-price="${tourData.pricing.twin}" data-room-type="twin_room">Twin Room - £${tourData.pricing.twin}</option>
-                        <option value="0_single_occupancy" data-price="${tourData.pricing.singleOccupancy}" data-room-type="single_occupancy">Single Occupancy - £${tourData.pricing.singleOccupancy}</option>
+                        <option value="0_single_occupancy" data-price="${tourData.pricing.singleOccupancy}" data-room-type="single_occupancy">Single Occupancy (Double Room) - £${tourData.pricing.singleOccupancy}</option>
                     `;
                 }
             }

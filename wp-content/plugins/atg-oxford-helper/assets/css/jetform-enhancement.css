@@ -107,6 +107,15 @@ body span.flatpickr-day
 .room_main {
     gap: 20px;
 }
+
+/* Number of passengers is fully automatic now (double/twin = 2, single = 1, set by
+   getPassengerLimits()/updatePassengerInputLimits() in jetform-enhancement.js), so
+   hide the field from the customer. Matches both the main room and any additional
+   rooms, since duplicateRoom() clones this same row without renaming its
+   data-update-field-name attribute. */
+.room_main .wp-block-column:has([data-update-field-name="number_of_passenger"]) {
+    display: none !important;
+}
 .room_main h3 {
     display: none;
 }
@@ -181,6 +190,19 @@ div.dialog-widget-content{
     border-radius: 5px !important;
     padding: 15px;
     background: #f6f8fb;
+}
+
+/* The "Booking Conditions" / "Privacy Policy" consent-checkbox links were picking up
+   the theme's --jmm-top-item-dropdown-icon-color (an orange meant for a nav dropdown
+   icon, not body links) plus whatever inline-flex/gap layout goes with it - that gap
+   is what pushed the trailing mandatory "*" away from the link text. Reset both,
+   scoped to just these links so nothing else on the site is affected. Adjust the
+   color below if you want something other than a standard blue underlined link. */
+.atg-acceptance-toc a {
+    display: inline;
+    gap: 0;
+    color: var(--jmm-top-item-dropdown-icon-color, #FF6D00) !important;
+    text-decoration: underline;
 }
 
 .atg-review-page-title {

@@ -809,10 +809,10 @@ document.addEventListener("DOMContentLoaded", function () {
         switch(roomType) {
             case "double_room":
             case "double_upgrade":
-                return { min: 1, max: 2, default: 2 };
+                return { min: 2, max: 2, default: 2 };
             case "twin_room":
             case "twin_room_upgrade":
-                return { min: 1, max: 2, default: 2 };
+                return { min: 2, max: 2, default: 2 };
             case "single_occupancy":
             case "single_occupancy_upgrade":
                 return { min: 1, max: 1, default: 1 };
@@ -835,20 +835,17 @@ document.addEventListener("DOMContentLoaded", function () {
         const limits = getPassengerLimits(roomType);
         // console.log("Passenger limits:", limits);
         
-        // Set min, max, and default value
+        // Set min, max, and always force the value to match the room type - the field
+        // is hidden from the customer now, so passenger count is fully automatic:
+        // double/twin (incl. upgrades) is always 2, single occupancy is always 1.
         passengerInput.min = limits.min;
         passengerInput.max = limits.max;
+        passengerInput.value = limits.default;
 
-        // Only set default if current value is invalid or empty
-        if (!passengerInput.value || parseInt(passengerInput.value) < limits.min || parseInt(passengerInput.value) > limits.max) {
-            passengerInput.value = limits.default;
-            // console.log("Set default passenger value:", limits.default);
+        // Trigger input event so subtotal/deposit/passenger-name fields recalculate
+        const inputEvent = new Event('input', { bubbles: true });
+        passengerInput.dispatchEvent(inputEvent);
 
-            // Trigger input event for consistency
-            const inputEvent = new Event('input', { bubbles: true });
-            passengerInput.dispatchEvent(inputEvent);
-        }
-        
         // Add validation message
         if (!passengerInput.dataset.originalTitle) {
             passengerInput.dataset.originalTitle = passengerInput.title || '';
@@ -890,10 +887,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const roomTypes = [
             { key: "double_room", label: "Double Room" },
             { key: "twin_room", label: "Twin Room" },
-            { key: "single_occupancy", label: "Single Occupancy" },
+            { key: "single_occupancy", label: "Single Occupancy (Double Room)" },
             { key: "double_upgrade", label: "Double Room (Upgrade)" },
             { key: "twin_room_upgrade", label: "Twin Room (Upgrade)" },
-            { key: "single_occupancy_upgrade", label: "Single Occupancy (Upgrade)" }
+            { key: "single_occupancy_upgrade", label: "Single Occupancy (Double Room) (Upgrade)" }
         ];
 
         // console.log("Available room types to check:", roomTypes);
@@ -1928,12 +1925,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 let roomType = "Unknown";
                 if (selectedOption) {
                     const roomValue = selectedOption.value;
-                    if (roomValue.includes("double_room")) roomType = "Double Room";
-                    else if (roomValue.includes("twin_room")) roomType = "Twin Room";
-                    else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy";
-                    else if (roomValue.includes("double_upgrade")) roomType = "Double Room (Upgrade)";
+                    // Upgrade variants must be checked first - "twin_room_upgrade" and
+                    // "single_occupancy_upgrade" both contain the base room's string too,
+                    // so checking the base first would always match it and never reach
+                    // the upgrade case.
+                    if (roomValue.includes("double_upgrade")) roomType = "Double Room (Upgrade)";
                     else if (roomValue.includes("twin_room_upgrade")) roomType = "Twin Room (Upgrade)";
-                    else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Upgrade)";
+                    else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Double Room) (Upgrade)";
+                    else if (roomValue.includes("double_room")) roomType = "Double Room";
+                    else if (roomValue.includes("twin_room")) roomType = "Twin Room";
+                    else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy (Double Room)";
                 }
                 
                 roomsData.push({
@@ -2331,15 +2332,16 @@ document.addEventListener("DOMContentLoaded", function () {
                     passengersHtml += `, ${title} ${firstName} ${lastName}`;
                 });
 
-                // Determine room type
+                // Determine room type. Upgrade variants must be checked first - see
+                // the matching comment in updateAdditionalRoomsData() for why.
                 let roomType = 'Unknown';
                 let roomValue = values["select_room" + suffix];
-                if (roomValue.includes("double_room")) roomType = "Double Room";
-                else if (roomValue.includes("twin_room")) roomType = "Twin Room";
-                else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy";
-                else if (roomValue.includes("double_upgrade")) roomType = "Double Room (Upgrade)";
+                if (roomValue.includes("double_upgrade")) roomType = "Double Room (Upgrade)";
                 else if (roomValue.includes("twin_room_upgrade")) roomType = "Twin Room (Upgrade)";
-                else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Upgrade)";
+                else if (roomValue.includes("single_occupancy_upgrade")) roomType = "Single Occupancy (Double Room) (Upgrade)";
+                else if (roomValue.includes("double_room")) roomType = "Double Room";
+                else if (roomValue.includes("twin_room")) roomType = "Twin Room";
+                else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy (Double Room)";
 
                 roomsHtml += `
                     <div class="summary-room-details-container">
