@@ -261,6 +261,22 @@ function atg_get_latest_jetformbuilder_submission_by_email($form_id, $email) {
  * @return string Date formatted as dd/mm/yyyy, or the original string if it
  *                can't be parsed as a date.
  */
+/**
+ * Format a number as GBP with thousands separators, e.g. 2140 -> "£2,140.00".
+ * Mirrors the JS helper window.atgFormatCurrency() in jetform-enhancement.js.
+ * Display only - never used on the raw field values that feed calculations.
+ *
+ * @param string|float $amount Raw amount, with or without a £ sign / commas already.
+ * @return string Formatted as £X,XXX.XX.
+ */
+function atg_format_currency($amount) {
+    $numeric = preg_replace('/[^0-9.\-]/', '', (string) $amount);
+    if ($numeric === '' || $numeric === '-' || !is_numeric($numeric)) {
+        return '£0.00';
+    }
+    return '£' . number_format((float) $numeric, 2);
+}
+
 function atg_format_ddmmyyyy($date_str) {
     $date_str = trim((string) $date_str);
     if ($date_str === '') {
@@ -341,7 +357,7 @@ function atg_render_booking_detail_boxes($fields) {
 
         $room_type = rawRoomTypeToDisplayRoomType($fields[$room_key]);
         $passenger_count = isset($fields['number_of_passenger' . $suffix]) ? intval($fields['number_of_passenger' . $suffix]) : 0;
-        $subtotal = isset($fields['sub_total' . $suffix]) ? esc_html($fields['sub_total' . $suffix]) : '';
+        $subtotal = isset($fields['sub_total' . $suffix]) ? atg_format_currency($fields['sub_total' . $suffix]) : '';
 
         $names = array();
         for ($j = 1; $j <= $passenger_count; $j++) {
@@ -511,7 +527,7 @@ function booking_summary_shortcode() {
         return "<p>No booking details found.</p>";
     }
 
-    $deposit = isset($fields['deposit']) ? esc_html($fields['deposit']) : '';
+    $deposit = isset($fields['deposit']) ? atg_format_currency($fields['deposit']) : '';
     $trip_length = isset($fields['triptitle']) ? esc_html($fields['triptitle']) : '';
     $return_url = esc_url(home_url('/'));
 
@@ -541,7 +557,7 @@ function booking_summary_shortcode() {
 
             $formFields = $result['form_fields'];
 
-            $emailDeposit = isset($formFields['deposit']) ? esc_html($formFields['deposit']) : '';
+            $emailDeposit = isset($formFields['deposit']) ? atg_format_currency($formFields['deposit']) : '';
 
             // Resolve the tour name the same way the page does (post title beats the raw triptitle field)
             $email_post_id = 0;
@@ -580,7 +596,7 @@ function booking_summary_shortcode() {
             $body_common = '
                 <div class="summary-logo-wrapper"><img class="booking-summary-logo" src="' . $logo_url . '"></div>
                 <p>' . $greeting . '</p>
-                <h2>Thank you for your deposit of £<span>' . $emailDeposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
+                <h2>Thank you for your deposit of <span>' . $emailDeposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
                 <h4 class="booking-summary-deposit">Book ' . esc_html($tour_name) . '</h4>
                 ' . atg_render_booking_detail_boxes($formFields);
 
@@ -614,8 +630,7 @@ function booking_summary_shortcode() {
     $output = '
     <div class="booking-summary">
 	<div class="summary-logo-wrapper"><img class="booking-summary-logo" src="' . $logo_url . '"></div>
-		<h2>Thank you for your deposit of £<span>' . $deposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
-		<h4 class="booking-summary-deposit">Book ' . $trip_length . '</h4>
+		<h2>Thank you for your deposit of <span>' . $deposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
         ' . atg_render_booking_detail_boxes($fields) . '
 		<div class="summary-btn">
 			<a class="elementor-button elementor-button-link elementor-size-sm elementor-animation-shrink" href="' . $return_url . '">

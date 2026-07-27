@@ -41,6 +41,50 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// Format any date-ish string as dd/mm/yyyy for display. Handles "2025-09-18",
+// "2025-09-18T00:00", and already-formatted "18/09/2025" (passthrough).
+// Used everywhere a date is shown to the user, so the site has one consistent format.
+// Defined at top level (not inside the flatpickr-gated IIFE below) so it's always
+// available even if Flatpickr somehow fails to load.
+window.atgFormatDDMMYYYY = function(dateStr) {
+    if (!dateStr) return dateStr;
+    dateStr = String(dateStr).trim();
+
+    // Already dd/mm/yyyy - leave as-is
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
+        return dateStr;
+    }
+
+    // Strip time portion if present
+    const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+
+    // ISO yyyy-mm-dd
+    const isoMatch = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) {
+        const [, year, month, day] = isoMatch;
+        return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+
+    // Fallback: try native Date parsing
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+        const day = String(parsed.getDate()).padStart(2, '0');
+        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+        return `${day}/${month}/${parsed.getFullYear()}`;
+    }
+
+    return dateStr;
+};
+
+// Format a number as GBP with thousands separators, e.g. 2140 -> "£2,140.00".
+// Used everywhere a price/deposit/total is displayed to the user. Only touches
+// display text, never the underlying form field .value used for calculations.
+window.atgFormatCurrency = function(amount) {
+    const num = typeof amount === 'number' ? amount : parseFloat(String(amount).replace(/[^0-9.-]/g, ''));
+    if (isNaN(num)) return '£0.00';
+    return '£' + num.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 (function() {
     // Check if we've already initialized to prevent duplicate execution
     if (window.jetformDatepickerInitialized) {
@@ -150,39 +194,6 @@ document.addEventListener('click', function(e) {
         return window.jetformDatepickerConfig.blockedDates.length > 0;
     }
     
-    // Format any date-ish string as dd/mm/yyyy for display. Handles "2025-09-18",
-    // "2025-09-18T00:00", and already-formatted "18/09/2025" (passthrough).
-    // Used everywhere a date is shown to the user, so the site has one consistent format.
-    window.atgFormatDDMMYYYY = function(dateStr) {
-        if (!dateStr) return dateStr;
-        dateStr = String(dateStr).trim();
-
-        // Already dd/mm/yyyy - leave as-is
-        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
-            return dateStr;
-        }
-
-        // Strip time portion if present
-        const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
-
-        // ISO yyyy-mm-dd
-        const isoMatch = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-        if (isoMatch) {
-            const [, year, month, day] = isoMatch;
-            return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
-        }
-
-        // Fallback: try native Date parsing
-        const parsed = new Date(dateStr);
-        if (!isNaN(parsed.getTime())) {
-            const day = String(parsed.getDate()).padStart(2, '0');
-            const month = String(parsed.getMonth() + 1).padStart(2, '0');
-            return `${day}/${month}/${parsed.getFullYear()}`;
-        }
-
-        return dateStr;
-    };
-
     // Function to format date ranges for display
     function formatDateRange(startDateStr, endDateStr) {
         // Handle both date formats: "2025-09-18" and "2025-09-18T00:00"
@@ -973,7 +984,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (selectedOption && selectedOption.dataset.price && passengers > 0) {
             const roomPrice = parseFloat(selectedOption.dataset.price);
             const subtotal = roomPrice * passengers;
-            subtotalInput.value = "£" + subtotal.toFixed(2);
+            subtotalInput.value = window.atgFormatCurrency(subtotal);
             // console.log("Calculated subtotal: £" + subtotal.toFixed(2));
 
             // Trigger input event for deposit calculation
@@ -1149,6 +1160,17 @@ document.addEventListener("DOMContentLoaded", function () {
         return deposit.toFixed(2);
     }
 
+    // Builds the "Deposit Due: £400 (£200 x 2 passengers)" label text. The £200 is
+    // getDepositPerPassenger() (independent vs escorted rate, editable under Settings >
+    // ATG Booking Settings) - never hardcoded - and the count is the live passenger total.
+    function buildDepositLabelHtml(depositValue) {
+        const rate = getDepositPerPassenger();
+        const count = getTotalPassengerCount();
+        const passengerWord = count === 1 ? 'passenger' : 'passengers';
+        return 'Deposit Due: ' + window.atgFormatCurrency(depositValue) +
+            ' (' + window.atgFormatCurrency(rate) + ' x ' + count + ' ' + passengerWord + ')';
+    }
+
     // Passenger text sync setup
     function setupFormSyncIfPresent() {
         const form = document.querySelector("form.jet-form-builder");
@@ -1253,7 +1275,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     const depositValue = calculateFixedDeposit(promoActive);
                     depositInput.value = depositValue;
                     if(depositFieldLabel){
-                        depositFieldLabel.innerHTML = 'Deposit Due: £' + depositValue;
+                        depositFieldLabel.innerHTML = buildDepositLabelHtml(depositValue);
                     }
                     // Trigger change event for compatibility
                     const changeEvent = new Event('change', { bubbles: true });
@@ -1800,7 +1822,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (selectedOption && selectedOption.dataset.price && passengers > 0) {
             const roomPrice = parseFloat(selectedOption.dataset.price);
             const subtotal = roomPrice * passengers;
-            subtotalInput.value = "£" + subtotal.toFixed(2);
+            subtotalInput.value = window.atgFormatCurrency(subtotal);
             // console.log("Calculated subtotal for room", roomIndex, ": £" + subtotal.toFixed(2));
 
             // Trigger input event for deposit calculation
@@ -1916,9 +1938,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 
                 roomsData.push({
                     room_type: roomType,
-                    room_price: "£" + roomPrice.toFixed(2),
+                    room_price: window.atgFormatCurrency(roomPrice),
                     passengers: passengers,
-                    total: "£" + (roomPrice * passengers).toFixed(2),
+                    total: window.atgFormatCurrency(roomPrice * passengers),
                     passenger_details: passengerDetails.join(", ")
                 });
             }
@@ -1982,7 +2004,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // Update grand total if exists
         const grandTotalInput = document.querySelector('input[name="grand_total"]');
         if (grandTotalInput) {
-            grandTotalInput.value = total > 0 ? "£" + total.toFixed(2) : "";
+            grandTotalInput.value = total > 0 ? window.atgFormatCurrency(total) : "";
             // console.log("Grand total: £" + total.toFixed(2));
 
             // Trigger change event for form validation
@@ -2096,12 +2118,12 @@ document.addEventListener("DOMContentLoaded", function () {
                     // Show discounted price
                     const discountPercentLabel = Math.round(promoSettings.discountFraction * 1000) / 10;
                     totalPriceElement.innerHTML =
-                        'Total Holiday Price: <span style="text-decoration: line-through;">£' + total.toFixed(2) + '</span> ' +
-                        '<span style="color: green; font-weight: bold;">£' + finalTotal.toFixed(2) + '</span> ' +
-                        '<small style="color: green;">(' + discountPercentLabel + '% discount: -£' + discountAmount.toFixed(2) + ')</small>';
+                        'Total Holiday Price: <span style="text-decoration: line-through;">' + window.atgFormatCurrency(total) + '</span> ' +
+                        '<span style="color: green; font-weight: bold;">' + window.atgFormatCurrency(finalTotal) + '</span> ' +
+                        '<small style="color: green;">(' + discountPercentLabel + '% discount: -' + window.atgFormatCurrency(discountAmount) + ')</small>';
                 } else {
                     // Show regular price
-                    totalPriceElement.innerHTML = 'Total Holiday Price: £' + total.toFixed(2);
+                    totalPriceElement.innerHTML = 'Total Holiday Price: ' + window.atgFormatCurrency(total);
                 }
 
                 depositWrapper.insertBefore(totalPriceElement, depositWrapper.firstChild);
@@ -2119,7 +2141,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 depositField.value = deposit;
                 depositField.readOnly = true;
                 if(depositFieldLabel){
-                    depositFieldLabel.innerHTML = 'Deposit Due: £' + deposit;
+                    depositFieldLabel.innerHTML = buildDepositLabelHtml(deposit);
                 }
                 // console.log("Deposit set to:", deposit, "Field set to readonly");
             } else {
@@ -2162,12 +2184,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 // Update total price display with strikethrough
                 totalPriceElement.innerHTML =
-                    'Total Holiday Price: <span style="text-decoration: line-through;">£' + total.toFixed(2) + '</span> ' +
-                    '<span style="color: green; font-weight: bold;">£' + discountedTotal.toFixed(2) + '</span> ' +
-                    '<small style="color: green;">(' + discountPercentLabel + '% discount: -£' + discountAmount.toFixed(2) + ')</small>';
+                    'Total Holiday Price: <span style="text-decoration: line-through;">' + window.atgFormatCurrency(total) + '</span> ' +
+                    '<span style="color: green; font-weight: bold;">' + window.atgFormatCurrency(discountedTotal) + '</span> ' +
+                    '<small style="color: green;">(' + discountPercentLabel + '% discount: -' + window.atgFormatCurrency(discountAmount) + ')</small>';
             } else {
                 // Reset to original price
-                totalPriceElement.innerHTML = 'Total Holiday Price: £' + total.toFixed(2);
+                totalPriceElement.innerHTML = 'Total Holiday Price: ' + window.atgFormatCurrency(total);
             }
 
             // Only touch the deposit here if the admin setting says the promo should
@@ -2179,7 +2201,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     const depositValue = calculateFixedDeposit(isPromoActive);
                     depositField.value = depositValue;
                     if (depositFieldLabel) {
-                        depositFieldLabel.innerHTML = 'Deposit Due: £' + depositValue;
+                        depositFieldLabel.innerHTML = buildDepositLabelHtml(depositValue);
                     }
                 }
             }
@@ -2226,9 +2248,26 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 15000);
     }, true);
 
+    // ================= REVIEW PAGE TITLE ===================
+    // The review/summary page is built entirely in Elementor/JetFormBuilder (no PHP
+    // template in this plugin renders it), so its title is inserted client-side here
+    // rather than hardcoded into any page-builder content.
+    function ensureReviewPageTitle() {
+        const reviewPage = document.querySelector('.custom-block-review-page');
+        if (!reviewPage || reviewPage.querySelector('.atg-review-page-title')) {
+            return;
+        }
+        const title = document.createElement('h2');
+        title.className = 'atg-review-page-title';
+        title.textContent = 'Please review your booking before paying your deposit';
+        reviewPage.insertBefore(title, reviewPage.firstChild);
+    }
+
     // ================= SUMMARY GENERATOR ===================
     function generateCompleteSummary() {
         // console.log("Generating complete summary");
+
+        ensureReviewPageTitle();
 
         const summaryContainer = document.querySelector('p.complete_summary');
         if (!summaryContainer) {
@@ -2265,15 +2304,32 @@ document.addEventListener("DOMContentLoaded", function () {
         while (true) {
             let suffix = (i > 0) ? "_" + i : "";
             if (values.hasOwnProperty("select_room" + suffix)) {
-                // Get passenger names
+                // Get passenger names directly from the DOM rather than FormData. The
+                // passenger-detail inputs are created dynamically (generatePassengerFields()/
+                // generateAdditionalPassengerFields()) and can end up outside the actual
+                // <form> boundary in some Elementor popup layouts - setupFormSyncIfPresent()
+                // already has a document-wide fallback query for this same reason, which is
+                // why updatePassengerDataText() (the hidden passenger_data field) shows names
+                // correctly while a FormData-only lookup here was silently coming up empty.
                 let passengersHtml = '';
-                const numPassengers = parseInt(values["number_of_passenger" + suffix]) || 0;
-                for (let j = 1; j <= numPassengers; j++) {
-                    const title = values["passenger_title" + suffix + '_' + j] || '';
-                    const firstName = values["passenger_first_name" + suffix + '_' + j] || '';
-                    const lastName = values["passenger_last_name" + suffix + '_' + j] || '';
-                    passengersHtml += `, ${title} ${firstName} ${lastName}`;
+                let sectionsContainer = null;
+                if (i === 0) {
+                    sectionsContainer = document.querySelector('.passangerfields .passenger-details-container')
+                        || document.querySelector('.passenger-details-container');
+                } else {
+                    const roomDiv = document.querySelector('.additional-room[data-room-index="' + i + '"]');
+                    sectionsContainer = roomDiv ? roomDiv.querySelector('.passenger-details-container') : null;
                 }
+                const sections = sectionsContainer ? sectionsContainer.querySelectorAll('.passenger-section') : [];
+                sections.forEach(function(section) {
+                    const titleInput = section.querySelector('input[name^="passenger_title"]');
+                    const firstNameInput = section.querySelector('input[name^="passenger_first_name"]');
+                    const lastNameInput = section.querySelector('input[name^="passenger_last_name"]');
+                    const title = titleInput ? titleInput.value : '';
+                    const firstName = firstNameInput ? firstNameInput.value : '';
+                    const lastName = lastNameInput ? lastNameInput.value : '';
+                    passengersHtml += `, ${title} ${firstName} ${lastName}`;
+                });
 
                 // Determine room type
                 let roomType = 'Unknown';
@@ -2290,7 +2346,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         <div class="summary-rd-room-type"><strong>Room Type:</strong> ${roomType}</div>
                         <div class="summary-rd-passengers"><strong>Passengers:</strong> ${values["number_of_passenger" + suffix]}</div>
                         <div class="summary-rd-subtotal"><strong>Subtotal:</strong> ${values["sub_total" + suffix]}</div>
-                        <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ${passengersHtml.slice(2)}</div>
+                        <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ${passengersHtml.slice(2) || 'N/A'}</div>
                     </div>
                 `;
                 i++;

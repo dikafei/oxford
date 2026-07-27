@@ -10,6 +10,15 @@
 input[type="date"].date-field {
     cursor: pointer;
 }
+
+/* Hide the promo/coupon code field for now. The wrapper's class is a unique
+   per-block Elementor ID (jet-sm-gb-XXXXXXXX), so target it by the field it
+   contains rather than a fixed class name. JS still shows/hides this same
+   wrapper based on departure year (see the "2026 promo" logic in
+   jetform-enhancement.js) - the !important here keeps it hidden regardless. */
+div.jet-sm-gb-wrapper:has(input[name="promo_code"]) {
+    display: none !important;
+}
 .custom-datepicker-input {
     background-color: #fff !important;
     cursor: pointer !important;
@@ -172,6 +181,13 @@ div.dialog-widget-content{
     border-radius: 5px !important;
     padding: 15px;
     background: #f6f8fb;
+}
+
+.atg-review-page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0 0 16px;
 }
 
 .custom-deposit-field #deposit{
