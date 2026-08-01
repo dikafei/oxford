@@ -909,3 +909,44 @@ function get_jetformbuilder_no_notification_records_by_email($form_id, $email) {
     }
     return $all_submissions;
 }
+
+/**
+ * Stripe Checkout Session: make sure a Stripe Customer is created for every
+ * deposit payment (customer_creation) and that the card used is saved for the
+ * later balance payment (payment_intent_data.setup_future_usage), and prefill
+ * the Checkout email from the "email" field on the lead customer step.
+ *
+ * The Stripe gateway plugin (jet-form-builder-stripe-gateway) fires
+ * 'jet-form-builder/gateways/before-create' with the request object right
+ * before it POSTs to /v1/checkout/sessions via wp_remote_post(). We read the
+ * body it already built (mode/line_items/payment_method_types/urls) via the
+ * public action_body() method, merge our extra params in, and hand the whole
+ * thing back via set_body() - this avoids touching any vendor plugin file.
+ *
+ * NOTE: calling set_body() with ONLY the extra params (without first merging
+ * action_body()'s output) would break checkout entirely - Base_Gateway_Action
+ * only calls action_body() when its internal body is still empty, so a
+ * premature/partial set_body() call silently drops mode/line_items/etc.
+ */
+add_action( 'jet-form-builder/gateways/before-create', 'atg_add_stripe_customer_params' );
+function atg_add_stripe_customer_params( $request ) {
+    if ( ! is_object( $request ) || ! method_exists( $request, 'action_body' ) || ! method_exists( $request, 'set_body' ) ) {
+        return;
+    }
+
+    $body = $request->action_body();
+
+    $body['customer_creation'] = 'always';
+    $body['payment_intent_data'] = array(
+        'setup_future_usage' => 'off_session',
+    );
+
+    if ( function_exists( 'jet_fb_context' ) ) {
+        $email = jet_fb_context()->get_value( 'email' );
+        if ( ! empty( $email ) && is_email( $email ) ) {
+            $body['customer_email'] = sanitize_email( $email );
+        }
+    }
+
+    $request->set_body( $body );
+}
