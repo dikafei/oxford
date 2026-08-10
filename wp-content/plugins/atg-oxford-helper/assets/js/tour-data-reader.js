@@ -335,7 +335,317 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     setupItineraryAddRemoveButtons();
+    buildAtgRouteMap();
+
+    // Delegated on document (not bound to the individual stop buttons) -
+    // the customize form's popup appears to clone/replace its content after
+    // first insertion (likely an entrance animation), which would silently
+    // drop any listeners attached directly to those buttons.
+    document.addEventListener('click', function(e) {
+        const stop = e.target.closest('form[data-form-id="31192"] .atg-route-map__stop');
+        if (!stop) return;
+        atgToggleRouteStop(stop.dataset.location, stop);
+    });
 });
+
+/**
+ * ================= ROUTE MAP (customize form) =================
+ *
+ * The Itinerary repeater used to let customers pick ANY location for ANY
+ * row via a free dropdown, in any order - but the walking route only goes
+ * one direction (e.g. Spoleto -> Scheggino -> Roccaporena -> Norcia ->
+ * Castelluccio for this tour). Customers can skip a stop (e.g. take a bus
+ * over a leg) but can't visit them out of order.
+ *
+ * Instead of the free dropdown, we show the route as a clickable line map
+ * built from the tour's actual day-by-day order (the same data that already
+ * feeds populate_hotels() via div.hotel_list_json). Clicking a stop toggles
+ * it on/off ("lights up"); whichever stops are selected always render in
+ * the map's fixed order in the repeater below, regardless of click order -
+ * that's what makes "wrong order" impossible rather than something we have
+ * to validate after the fact.
+ *
+ * The repeater itself has no native "reorder" operation, only "append a row"
+ * / "remove a row". So on every toggle we fully rebuild the rows in the
+ * correct order (remove all, re-add one per selected stop in route order),
+ * restoring each stop's previously-entered Hotel/Nights from an in-memory
+ * cache (keyed by location name, not row index) so toggling one stop
+ * doesn't wipe out data already entered for other stops.
+ */
+
+const atgItineraryStopData = new Map(); // location name -> { hotel, nights }
+const atgItinerarySelected = new Set(); // location names currently selected
+
+function atgSleep(ms) {
+    return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+// Ordered, de-duplicated list of location names for this tour, derived from
+// the same "hotel|location" pairs populate_hotels() already reads - first
+// appearance order matches day order, since _days postmeta is walked in
+// sequence when hotel_list_json is built server-side (frontend-data.php).
+function atgGetRouteOrderedLocations() {
+    const hotelListDiv = document.querySelector('div.hotel_list_json');
+    if (!hotelListDiv) return [];
+
+    let hotelData;
+    try {
+        hotelData = JSON.parse(hotelListDiv.textContent || '[]');
+    } catch (e) {
+        return [];
+    }
+
+    const seen = new Set();
+    const ordered = [];
+    hotelData.forEach(function(entry) {
+        const parts = String(entry).split('|');
+        if (parts.length < 2) return; // skip the "Select hotel" placeholder
+        const location = parts[1].trim();
+        if (!location || seen.has(location)) return;
+        seen.add(location);
+        ordered.push(location);
+    });
+    return ordered;
+}
+
+function buildAtgRouteMap() {
+    if (document.querySelector('form[data-form-id="31192"] .atg-route-map')) return; // already built
+
+    const repeaterField = document.querySelector('form[data-form-id="31192"] [data-field-name="Itinerary"]');
+    if (!repeaterField) return;
+
+    const fieldWrap = repeaterField.closest('.jet-form-builder__field-wrap') || repeaterField.parentElement;
+    if (!fieldWrap) return;
+
+    const locations = atgGetRouteOrderedLocations();
+    if (!locations.length) return;
+
+    const map = document.createElement('div');
+    map.className = 'atg-route-map';
+    locations.forEach(function(location, index) {
+        const stop = document.createElement('button');
+        stop.type = 'button';
+        stop.className = 'atg-route-map__stop';
+        stop.dataset.location = location;
+        stop.innerHTML = '<span class="atg-route-map__dot"></span><span class="atg-route-map__label">' + location + '</span>';
+        // Delegated (see the document-level click listener below) rather than
+        // bound directly to this button - the popup framework appears to
+        // clone/replace this markup after it's first inserted (an entrance
+        // animation, most likely), which drops any listeners attached here
+        // directly even though the elements look identical afterward.
+        map.appendChild(stop);
+
+        if (index < locations.length - 1) {
+            const connector = document.createElement('span');
+            connector.className = 'atg-route-map__connector';
+            map.appendChild(connector);
+        }
+    });
+
+    fieldWrap.insertBefore(map, fieldWrap.firstChild);
+
+    // Shown while a rebuild is tearing down/re-adding rows, in place of the
+    // repeater's rows (which get hidden via CSS) - covers up the native
+    // remove-then-add flicker instead of the customer seeing rows vanish and
+    // reappear one at a time.
+    const loader = document.createElement('div');
+    loader.className = 'atg-itinerary-loader';
+    loader.innerHTML = '<span class="atg-itinerary-loader__spinner"></span><span>Updating your itinerary…</span>';
+    repeaterField.insertAdjacentElement('afterend', loader);
+
+    // Cache whatever the customer types into Hotel/Nights so it survives a
+    // rebuild triggered by toggling a *different* stop. Delegated + scoped to
+    // this repeater so it keeps working across rebuilds without re-binding.
+    document.addEventListener('change', function(e) {
+        const hotelSelect = e.target.closest('form[data-form-id="31192"] [data-field-name="Itinerary"] select[name*="[hotel_name]"]');
+        if (!hotelSelect) return;
+        const row = hotelSelect.closest('.jet-form-builder-repeater__row');
+        const locSelect = row ? row.querySelector('select[name*="[hotel_location]"]') : null;
+        if (!locSelect || !locSelect.value) return;
+        const entry = atgItineraryStopData.get(locSelect.value) || {};
+        entry.hotel = hotelSelect.value;
+        atgItineraryStopData.set(locSelect.value, entry);
+    });
+
+    document.addEventListener('input', function(e) {
+        const nightsInput = e.target.closest('form[data-form-id="31192"] [data-field-name="Itinerary"] input[name*="[nights_at_this_hotel]"]');
+        if (!nightsInput) return;
+        const row = nightsInput.closest('.jet-form-builder-repeater__row');
+        const locSelect = row ? row.querySelector('select[name*="[hotel_location]"]') : null;
+        if (!locSelect || !locSelect.value) return;
+        const entry = atgItineraryStopData.get(locSelect.value) || {};
+        entry.nights = nightsInput.value;
+        atgItineraryStopData.set(locSelect.value, entry);
+    });
+}
+
+// Rebuilds tear the repeater's rows down and back up over several hundred ms
+// (waiting on populate_hotels()'s own delay each time). If the customer clicks
+// two stops in quick succession, a second rebuild can start while the first is
+// still removing/re-adding rows, and the two interleave and corrupt each other.
+// Queue rebuilds so they always run one at a time, in click order - each one
+// reads atgItinerarySelected fresh when it actually runs, so only the final
+// state needs to be correct, not every intermediate one.
+let atgRebuildQueue = Promise.resolve();
+
+function atgToggleRouteStop(location, stopEl) {
+    if (atgItinerarySelected.has(location)) {
+        atgItinerarySelected.delete(location);
+        stopEl.classList.remove('selected');
+    } else {
+        atgItinerarySelected.add(location);
+        stopEl.classList.add('selected');
+    }
+    atgRebuildQueue = atgRebuildQueue.then(atgRebuildItineraryRows).catch(function(err) {
+        // Never let one failed rebuild permanently wedge the queue - without
+        // this, every click after an error would silently no-op forever.
+        console.error('atg route map rebuild failed:', err);
+    });
+}
+
+// Polls conditionFn() every intervalMs until it returns a truthy value or
+// timeoutMs elapses; returns that value (or null on timeout). Used instead of
+// fixed sleeps when driving the native repeater, since populate_hotels()'s own
+// internal delay (and the page's overall responsiveness) isn't perfectly
+// consistent - waiting for an actual DOM signal (row count changed, select
+// marked .processed) is far more reliable than guessing a duration.
+async function atgWaitFor(conditionFn, timeoutMs, intervalMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const result = conditionFn();
+        if (result) return result;
+        await atgSleep(intervalMs || 40);
+    }
+    return null;
+}
+
+async function atgRebuildItineraryRows() {
+    const formSelector = 'form[data-form-id="31192"] [data-field-name="Itinerary"]';
+    const rowSelector = formSelector + ' .jet-form-builder-repeater__row';
+
+    // Hide the rows and show a loader for the duration of the rebuild -
+    // without this the customer sees every row vanish and then reappear one
+    // at a time as we tear the repeater down and rebuild it.
+    const repeaterField = document.querySelector(formSelector);
+    const loader = document.querySelector('form[data-form-id="31192"] .atg-itinerary-loader');
+    const itemsContainer = document.querySelector(formSelector + ' .jet-form-builder-repeater__items');
+
+    // Reserve the rows' current height on the loader before hiding them, so
+    // the popup goes straight from "old content height" to "new content
+    // height" once, instead of collapsing down to the loader's small size
+    // and then jumping again when the new rows appear - that double jump is
+    // what made this feel so jarring.
+    if (loader && itemsContainer && itemsContainer.offsetHeight > 0) {
+        loader.style.minHeight = itemsContainer.offsetHeight + 'px';
+    }
+
+    if (repeaterField) repeaterField.classList.add('atg-rebuilding');
+    if (loader) loader.classList.add('active');
+
+    // 1. Remove every existing row (order doesn't matter for removal, only
+    // for re-adding). Wait for the row count to actually drop before moving
+    // on, rather than assuming a fixed delay is enough.
+    let guard = 0;
+    let rows = document.querySelectorAll(rowSelector);
+    while (rows.length && guard < 50) {
+        const targetCount = rows.length - 1;
+        const lastRemove = rows[rows.length - 1].querySelector('.jet-form-builder-repeater__remove');
+        if (!lastRemove) break;
+        lastRemove.click();
+        await atgWaitFor(function() {
+            return document.querySelectorAll(rowSelector).length === targetCount;
+        }, 3000, 30);
+        rows = document.querySelectorAll(rowSelector);
+        guard++;
+    }
+
+    // 2. Re-add one row per selected stop, in fixed route order.
+    const orderedSelected = atgGetRouteOrderedLocations().filter(function(loc) {
+        return atgItinerarySelected.has(loc);
+    });
+
+    for (const location of orderedSelected) {
+        const addBtn = document.querySelector('form[data-form-id="31192"] .jet-form-builder-repeater__new');
+        if (!addBtn) break;
+
+        const beforeCount = document.querySelectorAll(rowSelector).length;
+        addBtn.click();
+
+        await atgWaitFor(function() {
+            return document.querySelectorAll(rowSelector).length === beforeCount + 1;
+        }, 3000, 30);
+
+        // The page's own click listener also calls populate_hotels() after a
+        // short delay to fill in the new row's Location/Hotel options - but
+        // it's occasionally unreliable under rapid programmatic clicks here,
+        // so call it directly too rather than trust that chain alone.
+        // populate_hotels() only touches :not(.processed) selects, so a
+        // duplicate call is harmless.
+        populate_hotels();
+
+        const rowsNow = document.querySelectorAll(rowSelector);
+        const newRow = rowsNow[rowsNow.length - 1];
+        if (!newRow) continue;
+
+        const locSelect = newRow.querySelector('select[name*="[hotel_location]"]');
+        const hotelSelect = newRow.querySelector('select[name*="[hotel_name]"]');
+        const nightsInput = newRow.querySelector('input[name*="[nights_at_this_hotel]"]');
+
+        // populate_hotels() marks the location/hotel selects "processed" once
+        // it has finished building their <option> lists - wait for that
+        // before setting a value, or the value can get lost when the options
+        // are (re)built out from under it.
+        await atgWaitFor(function() {
+            return locSelect && locSelect.classList.contains('processed');
+        }, 3000, 30);
+
+        if (locSelect) {
+            locSelect.value = location;
+            locSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const cached = atgItineraryStopData.get(location);
+        if (cached && cached.hotel && hotelSelect) {
+            hotelSelect.value = cached.hotel;
+            hotelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (cached && cached.nights && nightsInput) {
+            nightsInput.value = cached.nights;
+            nightsInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }
+
+    syncItineraryRemoveButtonVisibility();
+    atgUpdateLocationLabels(orderedSelected);
+
+    if (repeaterField) repeaterField.classList.remove('atg-rebuilding');
+    if (loader) {
+        loader.classList.remove('active');
+        loader.style.minHeight = ''; // let it size naturally again next time
+    }
+}
+
+// JetFormBuilder labels each row "Location 1", "Location 2"... via a
+// per-row <style> block it injects itself (a ::before rule keyed off the
+// row's [data-index]). We can't edit generated content via textContent since
+// it's a pseudo-element, so instead inject our own override rule per row
+// (scoped + !important so it wins regardless of injection order) showing the
+// actual place name instead of a generic index.
+function atgUpdateLocationLabels(orderedSelected) {
+    let styleEl = document.getElementById('atg-location-labels');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'atg-location-labels';
+        document.head.appendChild(styleEl);
+    }
+
+    const css = orderedSelected.map(function(location, index) {
+        const safeLocation = location.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return 'form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row[data-index="' + index + '"] .location-display::before { content: "' + safeLocation + '" !important; }';
+    }).join('\n');
+
+    styleEl.textContent = css;
+}
 
 /**
  * Show/hide the shared "Remove" button added by setupItineraryAddRemoveButtons()

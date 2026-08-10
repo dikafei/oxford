@@ -430,3 +430,147 @@ form[data-form-id="31192"] .jet-form-builder-repeater__new:focus:not(:hover) svg
 form[data-form-id="31192"] .jet-itinerary-remove-btn:focus:not(:hover) svg path {
     fill: #fff;
 }
+
+/* ============================================================
+   Route map (customize form's Itinerary section). Replaces manual
+   "Add Your Stay" / Remove with a clickable line map of the tour's
+   actual stops in order (built in tour-data-reader.js's
+   buildAtgRouteMap()/atgRebuildItineraryRows()). The native
+   add/remove bar still exists in the DOM (rebuild logic drives it
+   programmatically) but is hidden from the customer.
+   ============================================================ */
+form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__actions {
+    display: none !important;
+}
+
+form[data-form-id="31192"] .atg-route-map {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-bottom: 20px;
+}
+
+form[data-form-id="31192"] .atg-route-map__stop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+form[data-form-id="31192"] .atg-route-map__dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background-color: #fff;
+    border: 2px solid #b7c0c7;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+form[data-form-id="31192"] .atg-route-map__label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #6b7580;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+}
+
+form[data-form-id="31192"] .atg-route-map__connector {
+    width: 40px;
+    height: 2px;
+    background-color: #b7c0c7;
+    flex: 0 0 auto;
+}
+
+form[data-form-id="31192"] .atg-route-map__stop.selected .atg-route-map__dot {
+    background-color: #FF6D00;
+    border-color: #FF6D00;
+    box-shadow: 0 0 0 4px rgba(255, 109, 0, 0.15);
+}
+
+form[data-form-id="31192"] .atg-route-map__stop.selected .atg-route-map__label {
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+/* Location select is now set by the route map, not typed/chosen manually -
+   keep it enabled (so its value still submits) but visually + functionally
+   locked so the customer can't override it out of sync with the map. */
+form[data-form-id="31192"] [data-field-name="Itinerary"] select[name*="[hotel_location]"] {
+    pointer-events: none;
+    background-color: #f2f4f6;
+}
+
+/* Loader shown while atgRebuildItineraryRows() (tour-data-reader.js) tears
+   down and re-adds rows - covers up the native remove-then-add flicker
+   instead of the customer seeing rows disappear and pop back in one at a
+   time. The rows are hidden (not removed) so the popup doesn't jump/resize
+   more than necessary while this is up. */
+form[data-form-id="31192"] [data-field-name="Itinerary"].atg-rebuilding .jet-form-builder-repeater__items {
+    display: none;
+}
+
+form[data-form-id="31192"] .atg-itinerary-loader {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 30px 0;
+    color: #6b7580;
+    font-size: 14px;
+}
+
+form[data-form-id="31192"] .atg-itinerary-loader.active {
+    display: flex;
+}
+
+form[data-form-id="31192"] .atg-itinerary-loader__spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #dae3eb;
+    border-top-color: #FF6D00;
+    border-radius: 50%;
+    animation: atg-itinerary-spin 0.7s linear infinite;
+}
+
+@keyframes atg-itinerary-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Location field is driven entirely by the route map now, so hide its
+   column - it's the first .wp-block-column inside the Location+Hotel
+   columns block, leaving just Hotel there. Nights normally renders as its
+   own full-width block below; make the row-fields container a flex row so
+   Hotel and Nights sit side by side where Location used to be. */
+form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+}
+
+/* .location-display (the "Location N" -> place-name heading) is also a
+   direct child of .row-fields, sitting alongside Hotel/Nights once that's a
+   flex row - force it to take the full width so it wraps onto its own line
+   above them instead of competing for horizontal space. */
+form[data-form-id="31192"] [data-field-name="Itinerary"] .location-display {
+    flex: 1 1 100%;
+}
+
+form[data-form-id="31192"] [data-field-name="Itinerary"] .wp-block-columns > .wp-block-column:first-child {
+    display: none !important;
+}
+
+form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .wp-block-columns {
+    flex: 1 1 55%;
+    margin: 0 !important;
+}
+
+form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .jet-sm-gb-wrapper {
+    flex: 1 1 35%;
+}
