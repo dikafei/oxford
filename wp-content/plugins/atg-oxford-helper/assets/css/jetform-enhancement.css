@@ -355,3 +355,78 @@ div.dialog-widget-content{
 .summary-closing-note {
     margin-top: 20px;
 }
+
+/* Make the customize form's "Add Your Stay" / "Remove" buttons match the
+   look AND position of the "Add Room" / "Remove Room" buttons on the main
+   booking form: same dark background/border, rounded corners, compact
+   padding, "+"/"-" icons, and sitting side by side at the bottom of the
+   Itinerary section - instead of JetFormBuilder's default one-"x"-per-row
+   remove button pinned to the top-right corner of each Location block.
+   Scoped to this specific form (data-form-id, the customize form's post ID)
+   so other JetFormBuilder repeaters elsewhere on the site aren't affected.
+   The per-row "x" is hidden entirely - setupItineraryAddRemoveButtons() in
+   tour-data-reader.js adds a single shared "Remove" button (.jet-itinerary-remove-btn)
+   that removes the last-added row, mirroring "Remove Room" exactly. */
+form[data-form-id="31192"] .jet-form-builder-repeater__row-remove {
+    display: none !important;
+}
+
+form[data-form-id="31192"] .jet-form-builder-repeater__actions {
+    display: flex;
+    gap: 10px;
+}
+
+form[data-form-id="31192"] .jet-form-builder-repeater__new svg path,
+form[data-form-id="31192"] .jet-itinerary-remove-btn svg path {
+    fill: #fff;
+}
+
+form[data-form-id="31192"] .jet-form-builder-repeater__new,
+form[data-form-id="31192"] .jet-itinerary-remove-btn {
+    border-radius: 5px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: #343E46;
+    color: #fff;
+    border: 1px solid #343E46;
+    font-size: 18px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* On hover, invert to a white background so the icon needs to switch from
+   white to dark to stay visible against it (otherwise a white icon on a
+   white background disappears). */
+form[data-form-id="31192"] .jet-form-builder-repeater__new:hover,
+form[data-form-id="31192"] .jet-itinerary-remove-btn:hover {
+    background-color: #fff;
+    color: #343E46;
+}
+
+form[data-form-id="31192"] .jet-form-builder-repeater__new:hover svg path,
+form[data-form-id="31192"] .jet-itinerary-remove-btn:hover svg path {
+    fill: #343E46;
+}
+
+/* No separate "pressed"/focused look - clicking (or tabbing to) either button
+   should just settle back to the normal dark state, not get stuck showing a
+   browser default focus/active style. :not(:hover) so the hover state above
+   still wins while the mouse is actually over the button. */
+form[data-form-id="31192"] .jet-form-builder-repeater__new:active:not(:hover),
+form[data-form-id="31192"] .jet-itinerary-remove-btn:active:not(:hover),
+form[data-form-id="31192"] .jet-form-builder-repeater__new:focus:not(:hover),
+form[data-form-id="31192"] .jet-itinerary-remove-btn:focus:not(:hover) {
+    background-color: #343E46;
+    color: #fff;
+    outline: none;
+    box-shadow: none;
+}
+
+form[data-form-id="31192"] .jet-form-builder-repeater__new:active:not(:hover) svg path,
+form[data-form-id="31192"] .jet-itinerary-remove-btn:active:not(:hover) svg path,
+form[data-form-id="31192"] .jet-form-builder-repeater__new:focus:not(:hover) svg path,
+form[data-form-id="31192"] .jet-itinerary-remove-btn:focus:not(:hover) svg path {
+    fill: #fff;
+}

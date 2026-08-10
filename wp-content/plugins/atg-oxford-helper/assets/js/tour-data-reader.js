@@ -309,20 +309,99 @@ document.addEventListener('DOMContentLoaded', function() {
 		
     }
 	
-    // Add an event listener for clicks on the div with class "customize_button"
-    const customizeButton = document.querySelector('div.customize_button');
-    if (customizeButton) {
-        customizeButton.addEventListener('click', function() {
-        setTimeout(function() {
-            const itineraryButton = document.querySelector('.jet-form-builder__field-wrap input');
-            if (itineraryButton) {
-                itineraryButton.setAttribute('onKeydown', 'populate_hotels()');
-                itineraryButton.setAttribute('onChange', 'populate_hotels()');
-            }
-        }, 500);
-        });
-    }
+    // Populate the Location/Hotel selects whenever a new row is added to the
+    // "Itinerary" repeater (the "Add Your Stay" button on the customize form).
+    //
+    // Previously this relied on grabbing "the first .jet-form-builder__field-wrap
+    // input found on the page" 500ms after opening the customize popup and
+    // attaching onKeydown/onChange="populate_hotels()" to it - that only worked
+    // by accident, back when the departure-date field happened to be first in
+    // the DOM. The form has since gained fields earlier in the DOM (e.g. the
+    // hidden number_of_passenger field), so that selector now grabs an unrelated
+    // field and populate_hotels() never runs for customers. Listening directly
+    // on the repeater's own "Add Your Stay" button is reliable regardless of
+    // field order. Scoped to the "Itinerary" repeater specifically, since the
+    // form also has a leftover hidden "Itinerary-old" repeater using the same
+    // "Add Your Stay" button class.
+    document.addEventListener('click', function(e) {
+        const addRowButton = e.target.closest('.jet-form-builder-repeater__new');
+        if (!addRowButton) return;
+
+        const repeaterRoot = addRowButton.closest('[data-field-name="Itinerary"]');
+        if (!repeaterRoot) return;
+
+        setTimeout(populate_hotels, 100);
+        setTimeout(syncItineraryRemoveButtonVisibility, 100);
+    });
+
+    setupItineraryAddRemoveButtons();
 });
+
+/**
+ * Show/hide the shared "Remove" button added by setupItineraryAddRemoveButtons()
+ * based on whether any Location rows currently exist. Always re-queries fresh
+ * from the document rather than relying on any cached element reference -
+ * JetFormBuilder appears to rebuild parts of the repeater's DOM at some point
+ * after the page loads (e.g. when the popup first opens), which silently
+ * detached an earlier MutationObserver-based version of this check bound to
+ * a now-stale container reference, leaving the Remove button stuck hidden
+ * even with rows present.
+ */
+function syncItineraryRemoveButtonVisibility() {
+    const removeBtn = document.querySelector('form[data-form-id="31192"] .jet-itinerary-remove-btn');
+    if (!removeBtn) return;
+    const rows = document.querySelectorAll('form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row');
+    removeBtn.style.display = rows.length > 0 ? 'flex' : 'none';
+}
+
+/**
+ * Give the customize form's "Add Your Stay" button the same "+" icon as the
+ * main booking form's "Add Room" button, and add a matching shared "Remove"
+ * button (with the same "-" icon) next to it - instead of JetFormBuilder's
+ * default one-"x"-per-row remove button pinned to the top-right corner of
+ * each Location block. The shared Remove button always removes the
+ * last-added Location row, exactly like "Remove Room" always removes the
+ * last-added room on the main form.
+ *
+ * Deliberately does NOT reuse the main form's .add-room-btn/.remove-room-btn
+ * classes - those have their own document-level click handler (duplicateRoom()/
+ * removeLatestRoom()) tied to the *Room* fields, and giving the Itinerary
+ * buttons the same classes would trigger that unrelated logic too.
+ */
+function setupItineraryAddRemoveButtons() {
+    const PLUS_ICON = '<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display:block;height:18px;max-width:100%;"><path d="M13.7 2.3C12.1.8 10.1 0 8 0S3.9.8 2.3 2.3 0 5.9 0 8s.8 4.1 2.3 5.7S5.9 16 8 16s4.1-.8 5.7-2.3S16 10.1 16 8s-.8-4.1-2.3-5.7zM8 14.8c-3.7 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3.1 6.8-6.8 6.8zm.6-7.4h2.8v1.2H8.6v2.8H7.4V8.6H4.6V7.4h2.8V4.6h1.2v2.8z"></path></svg>';
+    const MINUS_ICON = '<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display:block;height:18px;max-width:100%;"><path d="M8 16c-2.1 0-4.1-.8-5.7-2.3S0 10.1 0 8s.8-4.1 2.3-5.7S5.9 0 8 0s4.1.8 5.7 2.3S16 5.9 16 8s-.8 4.1-2.3 5.7S10.1 16 8 16zM8 1.2c-3.7 0-6.8 3-6.8 6.8s3 6.8 6.8 6.8 6.8-3 6.8-6.8S11.7 1.2 8 1.2zm3.4 6.2H4.6v1.2h6.9V7.4z"></path></svg>';
+
+    const addBtn = document.querySelector('form[data-form-id="31192"] .jet-form-builder-repeater__new');
+    if (!addBtn || addBtn.dataset.atgIconAdded) return;
+    addBtn.dataset.atgIconAdded = '1';
+
+    // Icon + label span, matching Add Room's markup structure
+    addBtn.innerHTML = PLUS_ICON + '<span class="jet-itinerary-add-btn__label">' + addBtn.textContent.trim() + '</span>';
+
+    const actionsBar = addBtn.parentElement; // .jet-form-builder-repeater__actions
+    if (!actionsBar) return;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'jet-itinerary-remove-btn';
+    removeBtn.innerHTML = MINUS_ICON + '<span class="jet-itinerary-remove-btn__label">Remove</span>';
+    removeBtn.style.display = 'none'; // nothing to remove until a row exists
+    actionsBar.appendChild(removeBtn);
+
+    removeBtn.addEventListener('click', function() {
+        const rows = document.querySelectorAll('form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row');
+        const lastRow = rows[rows.length - 1];
+        if (!lastRow) return;
+        // Delegate the actual removal to JetFormBuilder's own (hidden) per-row
+        // remove button, rather than reimplementing its repeater internals.
+        const lastRowRemove = lastRow.querySelector('.jet-form-builder-repeater__remove');
+        if (lastRowRemove) lastRowRemove.click();
+        setTimeout(syncItineraryRemoveButtonVisibility, 100);
+    });
+
+    syncItineraryRemoveButtonVisibility();
+}
 
 
 

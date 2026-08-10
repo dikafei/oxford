@@ -130,12 +130,16 @@ class ATG_Tour_Frontend_Data {
             return;
         }
 
-        // Enqueue tour data reader JavaScript
+        // Enqueue tour data reader JavaScript (cache-busting via filemtime, same
+        // as jetform-enhancement.js/css in the main plugin file - using the static
+        // ATG_OXFORD_HELPER_VERSION here meant browsers/CDNs kept serving a stale
+        // cached copy after every edit until that constant was manually bumped).
+        $tour_data_reader_path = plugin_dir_path( dirname( __FILE__ ) ) . 'assets/js/tour-data-reader.js';
         wp_enqueue_script(
             'tour-data-reader',
             plugin_dir_url( dirname( __FILE__ ) ) . 'assets/js/tour-data-reader.js',
             array( 'jquery' ),
-            ATG_OXFORD_HELPER_VERSION,
+            file_exists( $tour_data_reader_path ) ? filemtime( $tour_data_reader_path ) : ATG_OXFORD_HELPER_VERSION,
             true
         );
 
