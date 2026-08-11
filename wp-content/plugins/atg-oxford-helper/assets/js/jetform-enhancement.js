@@ -923,6 +923,14 @@ document.addEventListener("DOMContentLoaded", function () {
         initializeCalculation();
     }
 
+    // Exposed so other scripts (e.g. the customise-itinerary form's route-map
+    // logic in tour-data-reader.js) can re-run this on demand. It's needed there
+    // because JetFormBuilder's own repeater add/remove cycle (triggered while the
+    // customer edits their Itinerary stops) resets select_room back to its bare
+    // admin-configured default options, wiping out whatever real room/price
+    // options were populated here when the popup first opened.
+    window.atgPopulateRoomOptions = populateRoomOptions;
+
     // Init calculation + passenger fields
     function initializeCalculation() {
         // console.log("Initializing calculation");
@@ -1072,10 +1080,18 @@ document.addEventListener("DOMContentLoaded", function () {
             const changeEvent = new Event('change', { bubbles: true });
             hiddenField.dispatchEvent(changeEvent);
         }
-        if (titleElement && buttonId) {
+        // Not every popup has a .atg-for-selectroom heading (e.g. the customise-
+        // itinerary form doesn't) - bail out instead of throwing, since this used
+        // to be an uncaught TypeError that aborted the rest of the
+        // elementor/popup/show handler, silently skipping the populateRoomOptions()
+        // call further down and leaving that popup's room dropdown/passenger
+        // fields/subtotal never wired up.
+        if (!titleElement) return;
+
+        if (buttonId) {
             // Convert button ID to a more readable format
             const formattedTitle = formatTitleText(buttonId);
-            
+
             // Update the title text
             titleElement.textContent = formattedTitle;
             titleElement.style.display = "block";
@@ -2377,6 +2393,40 @@ document.addEventListener("DOMContentLoaded", function () {
             `
             : '';
 
+        // Build itinerary summary from the "Itinerary" repeater (the customise
+        // form's build-your-own-route step - not present on the fixed-trip
+        // forms, which don't have Itinerary[N][...] fields at all). Lists each
+        // selected stop's location/hotel/nights, and sums the nights into an
+        // overall trip length so "Trip Length" isn't stuck at N/A for these
+        // bookings (there's no fixed trip_duration_label to fall back on since
+        // the customer built their own route).
+        let itineraryRowsHtml = '';
+        let itineraryTotalNights = 0;
+        let itineraryIndex = 0;
+        while (values.hasOwnProperty('Itinerary[' + itineraryIndex + '][hotel_location]')) {
+            const stopLocation = values['Itinerary[' + itineraryIndex + '][hotel_location]'] || '';
+            const stopHotel = values['Itinerary[' + itineraryIndex + '][hotel_name]'] || '';
+            const stopNights = parseInt(values['Itinerary[' + itineraryIndex + '][nights_at_this_hotel]'], 10) || 0;
+            itineraryTotalNights += stopNights;
+
+            itineraryRowsHtml += `
+                <div class="summary-itinerary-stop">
+                    <strong>${stopLocation || 'N/A'}</strong>${stopHotel ? ' – ' + stopHotel : ''}${stopNights ? ' – ' + stopNights + ' night' + (stopNights === 1 ? '' : 's') : ''}
+                </div>
+            `;
+            itineraryIndex++;
+        }
+
+        const itineraryListHtml = itineraryRowsHtml
+            ? `<div class="summary-itinerary-list"><strong>Itinerary:</strong>${itineraryRowsHtml}</div>`
+            : '';
+
+        // Only the customise form has itinerary rows to sum - other forms keep
+        // using the existing trip-title/trip-duration lookup below.
+        const itineraryTripLength = itineraryIndex > 0
+            ? (itineraryTotalNights + ' night' + (itineraryTotalNights === 1 ? '' : 's'))
+            : null;
+
         const summaryHtml = `
             <div class="summary-wrapper">
                 <div class="summary-holiday-details summary-inner-wrapper">
@@ -2384,16 +2434,19 @@ document.addEventListener("DOMContentLoaded", function () {
                         <div class="summary-title">Holiday Details</div>
                         <div class="summary-trip-selected"><strong>Trip Selected:</strong> ${atg_tour_data.page_name || 'N/A'}</div>
                         <div class="summary-trip-length"><strong>Trip Length:</strong> ${
-                            typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")
-                                ? (
-                                    (() => {
-                                        const el = document.querySelector("div.trip_duration .jet-headline__second .jet-headline__label");
-                                        return el && el.textContent ? el.textContent : (values['triptitle'] || 'N/A');
-                                    })()
-                                )
-                                : (values['triptitle'] || 'N/A')
+                            itineraryTripLength
+                                ? itineraryTripLength
+                                : (typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")
+                                    ? (
+                                        (() => {
+                                            const el = document.querySelector("div.trip_duration .jet-headline__second .jet-headline__label");
+                                            return el && el.textContent ? el.textContent : (values['triptitle'] || 'N/A');
+                                        })()
+                                    )
+                                    : (values['triptitle'] || 'N/A'))
                         }</div>
                         <div class="summary-departure-date"><strong>Departure Date:</strong> ${values['_departure'] ? window.atgFormatDDMMYYYY(values['_departure']) : 'N/A'}</div>
+                        ${itineraryListHtml}
                     </div>
                 </div>
 

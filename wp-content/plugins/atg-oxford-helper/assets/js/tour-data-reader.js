@@ -420,26 +420,27 @@ function buildAtgRouteMap() {
     const locations = atgGetRouteOrderedLocations();
     if (!locations.length) return;
 
+    // Numbered step bubbles (1, 2, 3...) rather than a line/trail drawing -
+    // a plain wrapping flex row, so there's no path geometry to recompute on
+    // resize or worry about with many stops: the browser just wraps it like
+    // any other row of buttons. The number conveys the fixed route order
+    // (independent of click order); the label names the place.
     const map = document.createElement('div');
     map.className = 'atg-route-map';
-    locations.forEach(function(location, index) {
+
+    const stopEls = locations.map(function(location, index) {
         const stop = document.createElement('button');
         stop.type = 'button';
         stop.className = 'atg-route-map__stop';
         stop.dataset.location = location;
-        stop.innerHTML = '<span class="atg-route-map__dot"></span><span class="atg-route-map__label">' + location + '</span>';
+        stop.innerHTML = '<span class="atg-route-map__number">' + (index + 1) + '</span><span class="atg-route-map__label">' + location + '</span>';
         // Delegated (see the document-level click listener below) rather than
         // bound directly to this button - the popup framework appears to
         // clone/replace this markup after it's first inserted (an entrance
         // animation, most likely), which drops any listeners attached here
         // directly even though the elements look identical afterward.
         map.appendChild(stop);
-
-        if (index < locations.length - 1) {
-            const connector = document.createElement('span');
-            connector.className = 'atg-route-map__connector';
-            map.appendChild(connector);
-        }
+        return stop;
     });
 
     fieldWrap.insertBefore(map, fieldWrap.firstChild);
@@ -477,6 +478,20 @@ function buildAtgRouteMap() {
         entry.nights = nightsInput.value;
         atgItineraryStopData.set(locSelect.value, entry);
     });
+
+    // The form starts with nothing picked, so there's nothing to build an
+    // itinerary from yet - hide this step's "Next" button until at least one
+    // stop is selected, rather than letting the customer through to book a
+    // trip with an empty itinerary.
+    atgSyncNextButtonVisibility();
+}
+
+function atgSyncNextButtonVisibility() {
+    const itineraryField = document.querySelector('form[data-form-id="31192"] [data-field-name="Itinerary"]');
+    const page = itineraryField ? itineraryField.closest('.jet-form-builder-page') : null;
+    const nextBtn = page ? page.querySelector('.jet-form-builder__next-page') : null;
+    if (!nextBtn) return;
+    nextBtn.style.display = atgItinerarySelected.size > 0 ? '' : 'none';
 }
 
 // Rebuilds tear the repeater's rows down and back up over several hundred ms
@@ -496,6 +511,7 @@ function atgToggleRouteStop(location, stopEl) {
         atgItinerarySelected.add(location);
         stopEl.classList.add('selected');
     }
+    atgSyncNextButtonVisibility();
     atgRebuildQueue = atgRebuildQueue.then(atgRebuildItineraryRows).catch(function(err) {
         // Never let one failed rebuild permanently wedge the queue - without
         // this, every click after an error would silently no-op forever.
@@ -617,6 +633,18 @@ async function atgRebuildItineraryRows() {
 
     syncItineraryRemoveButtonVisibility();
     atgUpdateLocationLabels(orderedSelected);
+
+    // Re-populate the Select Room step's dropdown (real room types/prices,
+    // like the main booking form) every time the Itinerary changes.
+    // jetform-enhancement.js already fills this in once when the popup first
+    // opens, but JetFormBuilder's own repeater add/remove cycle - which is
+    // exactly what the loop above just did - resets select_room back to its
+    // bare admin-configured placeholder options ("Select Room"/"Test2") as a
+    // side effect. Re-running the same population function afterward keeps
+    // it showing real options instead of that placeholder.
+    if (typeof window.atgPopulateRoomOptions === 'function' && window.tripData) {
+        window.atgPopulateRoomOptions(window.tripData.selectedTripIndex || 0);
+    }
 
     if (repeaterField) repeaterField.classList.remove('atg-rebuilding');
     if (loader) {
