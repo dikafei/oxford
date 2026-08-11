@@ -625,3 +625,29 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
 form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .jet-sm-gb-wrapper {
     flex: 1 1 35%;
 }
+
+/* Customized Repeater Style */
+.atg-route-map {
+    padding: 15px;
+    background: rgba(59, 148, 129, 0.15);
+    border: 1px solid rgba(59, 148, 129, 0.2);
+    border-radius: 5px;
+    justify-content: space-between;
+}
+
+.atg-customized-repeater .jet-form-builder-repeater__items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.atg-customized-repeater .jet-form-builder-repeater__items .jet-form-builder-repeater__row {
+    padding: 15px;
+    background: #f6f8fb;
+    border: 1px solid #dae3eb;
+    border-radius: 5px;
+}
+
+.atg-customized-repeater .jet-form-builder-repeater__items .jet-form-builder-repeater__row .jet-form-builder-repeater__row-fields .wp-block-columns .wp-block-column .jet-sm-gb-wrapper {
+    margin-block-start: 0;
+}
