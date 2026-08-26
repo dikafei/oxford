@@ -76,6 +76,79 @@ window.atgFormatDDMMYYYY = function(dateStr) {
     return dateStr;
 };
 
+// Parse any date-ish string ("2025-09-18", "2025-09-18T00:00", "18/09/2025")
+// into a plain Date. Shared by atgFormatShortDate()/atgComputeTravelDates()
+// below so date math (adding nights to get an end date) and display
+// formatting both agree on what the input actually means.
+function atgParseFlexibleDate(dateStr) {
+    if (!dateStr) return null;
+    if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+    dateStr = String(dateStr).trim();
+
+    const dmy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (dmy) {
+        return new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+    }
+
+    const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+    const iso = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (iso) {
+        return new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+    }
+
+    const parsed = new Date(dateStr);
+    return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Format any date-ish string as "29 Jul 26" - unambiguous regardless of
+// whether the reader expects UK (dd/mm) or US (mm/dd) ordering, unlike the
+// dd/mm/yyyy format above. This is what's shown on the review page, thank-you
+// page, and confirmation emails; atgFormatDDMMYYYY() above is only still used
+// for the flatpickr blocked-date-range labels.
+window.atgFormatShortDate = function(dateStr) {
+    const d = atgParseFlexibleDate(dateStr);
+    if (!d) return dateStr;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${d.getDate()} ${months[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`;
+};
+
+// Builds the "Travel Dates" range shown in place of a single "Departure Date":
+// start date is the submitted departure date; end date is start + the trip's
+// number of nights. Nights come from whichever of these is available -
+// itineraryTotalNights (customise form's summed Itinerary rows) takes
+// priority since it's an exact count, falling back to parsing the leading
+// number out of a "9 Day Itinerary"-style trip length label (fixed-itinerary
+// forms - "9 Day" means 9 days = 8 nights).
+// Returns { rangeText, start, end } - end/rangeText fall back to just the
+// start date if nights can't be determined from either source.
+window.atgComputeTravelDates = function(departureRaw, tripLengthLabel, itineraryTotalNights) {
+    const startDate = atgParseFlexibleDate(departureRaw);
+    if (!startDate) {
+        return { rangeText: '', start: '', end: '' };
+    }
+    const start = window.atgFormatShortDate(departureRaw);
+
+    let nights = null;
+    if (itineraryTotalNights) {
+        nights = parseInt(itineraryTotalNights, 10);
+    } else if (tripLengthLabel) {
+        const dayMatch = String(tripLengthLabel).match(/(\d+)\s*Day/i);
+        if (dayMatch) {
+            nights = parseInt(dayMatch[1], 10) - 1;
+        }
+    }
+
+    if (nights === null || isNaN(nights) || nights < 0) {
+        return { rangeText: start, start: start, end: '' };
+    }
+
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + nights);
+    const end = window.atgFormatShortDate(endDate);
+
+    return { rangeText: `${start} - ${end}`, start: start, end: end };
+};
+
 // Format a number as GBP with thousands separators, e.g. 2140 -> "£2,140.00".
 // Used everywhere a price/deposit/total is displayed to the user. Only touches
 // display text, never the underlying form field .value used for calculations.
@@ -268,7 +341,7 @@ window.atgFormatCurrency = function(amount) {
         
         // Hide the original input completely
         input.style.display = 'none';
-        
+
         // Create a select dropdown
         const select = document.createElement('select');
         select.name = input.name;
@@ -278,7 +351,31 @@ window.atgFormatCurrency = function(amount) {
         select.style.padding = '8px';
         select.style.marginTop = '5px';
         select.required = input.required;
-        
+
+        // Found the actual root cause of the "Next button does nothing" bug on
+        // escorted tours (2026-08-26 investigation): a separate custom validator
+        // in this file (the capturing click listener on .jet-form-builder__next-page,
+        // search "requiredFields.forEach" below) checks `field.value.trim()` on
+        // every [required] field in the current step and silently blocks
+        // navigation (stopImmediatePropagation + preventDefault, no visible error
+        // since the field is display:none) if any is empty. The original native
+        // #_departure input was still `required` and still part of the form
+        // (same `name` as this select) even after being hidden here, and its
+        // .value never gets populated by the user (the select is what they
+        // actually interact with) - so that check always failed for escorted
+        // tours. Live testing (fresh page loads, multiple dispatch methods)
+        // confirmed the select's own change handler below reliably updates
+        // select.value, but no code path was actually making the *hidden input*
+        // required/necessary once this dropdown exists - so the fix is to stop
+        // treating it as a required, submitted field at all: the select (same
+        // name, already required) is the real field now. Disabling the input
+        // also removes it from FormData (used to build values[] for the review
+        // page summary), which previously caused values['_departure'] to become
+        // a two-item array (empty input value + real select value) since both
+        // shared the same name.
+        input.required = false;
+        input.disabled = true;
+
         // Add a default option
         const defaultOption = document.createElement('option');
         defaultOption.value = '';
@@ -307,13 +404,20 @@ window.atgFormatCurrency = function(amount) {
             }
         }
         
-        // Update the hidden input when selection changes
+        // Best-effort: keep the hidden input's value mirrored to the select's,
+        // in case any other code reads input#_departure directly (e.g. the
+        // 2026-promo-code check, which already falls back to the select if this
+        // is empty). Not required for validation/submission anymore - see the
+        // input.required/input.disabled change above for the actual fix.
         select.addEventListener('change', function() {
-            input.value = this.value;
-            
+            const liveInput = (input.id && document.getElementById(input.id))
+                || document.querySelector('input[name="' + input.name + '"]')
+                || input;
+            liveInput.value = this.value;
+
             // Trigger change event on the original input for form validation
             const event = new Event('change', { bubbles: true });
-            input.dispatchEvent(event);
+            liveInput.dispatchEvent(event);
         });
         
         // Add the select after the input
@@ -882,6 +986,13 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        // The customise-itinerary form (31192) doesn't take payment, so prices
+        // and the paid "Upgrade" room variants aren't relevant there - only
+        // the three base room types, labelled with no price suffix. The main
+        // booking form (31190) keeps both, unchanged.
+        const roomFormEl = roomSelect.closest('form[data-form-id]');
+        const isCustomizeForm = !!roomFormEl && roomFormEl.dataset.formId === '31192';
+
         roomSelect.innerHTML = '<option value="" selected disabled>Select Room</option>';
 
         const roomTypes = [
@@ -891,7 +1002,7 @@ document.addEventListener("DOMContentLoaded", function () {
             { key: "double_upgrade", label: "Double Room (Upgrade)" },
             { key: "twin_room_upgrade", label: "Twin Room (Upgrade)" },
             { key: "single_occupancy_upgrade", label: "Single Occupancy (Double Room) (Upgrade)" }
-        ];
+        ].filter(roomType => !isCustomizeForm || !roomType.key.includes("upgrade"));
 
         // console.log("Available room types to check:", roomTypes);
 
@@ -901,7 +1012,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (trip[roomType.key] && trip[roomType.key] !== "") {
                 const option = document.createElement("option");
                 option.value = `${tripIndex}_${roomType.key}`;
-                option.textContent = `${roomType.label} - £${trip[roomType.key]} per person`;
+                option.textContent = isCustomizeForm ? roomType.label : `${roomType.label} - £${trip[roomType.key]} per person`;
                 option.dataset.price = trip[roomType.key];
                 option.dataset.roomType = roomType.key;
                 roomSelect.appendChild(option);
@@ -2299,6 +2410,10 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        // The customise-itinerary form (31192) doesn't take payment, so its
+        // review page shouldn't show a Subtotal line under Room Details.
+        const isCustomizeForm = form.dataset.formId === '31192';
+
         const formData = new FormData(form);
         const values = {};
         for (let [name, value] of formData.entries()) {
@@ -2363,7 +2478,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <div class="summary-room-details-container">
                         <div class="summary-rd-room-type"><strong>Room Type:</strong> ${roomType}</div>
                         <div class="summary-rd-passengers"><strong>Passengers:</strong> ${values["number_of_passenger" + suffix]}</div>
-                        <div class="summary-rd-subtotal"><strong>Subtotal:</strong> ${values["sub_total" + suffix]}</div>
+                        ${isCustomizeForm ? '' : `<div class="summary-rd-subtotal"><strong>Subtotal:</strong> ${values["sub_total" + suffix]}</div>`}
                         <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ${passengersHtml.slice(2) || 'N/A'}</div>
                     </div>
                 `;
@@ -2427,25 +2542,46 @@ document.addEventListener("DOMContentLoaded", function () {
             ? (itineraryTotalNights + ' night' + (itineraryTotalNights === 1 ? '' : 's'))
             : null;
 
+        const tripLengthText = itineraryTripLength
+            ? itineraryTripLength
+            : (typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")
+                ? (
+                    (() => {
+                        const el = document.querySelector("div.trip_duration .jet-headline__second .jet-headline__label");
+                        return el && el.textContent ? el.textContent : (values['triptitle'] || 'N/A');
+                    })()
+                )
+                : (values['triptitle'] || 'N/A'));
+
+        // "Travel Dates: 29 Jul 26 - 6 Aug 26" instead of a single, ambiguous
+        // "Departure Date" - end date is derived from the trip length above
+        // (itineraryTotalNights for the customise form, or the leading number
+        // in a "9 Day Itinerary"-style label for fixed-itinerary forms).
+        const travelDates = window.atgComputeTravelDates(values['_departure'], tripLengthText, itineraryIndex > 0 ? itineraryTotalNights : 0);
+        const travelDatesText = travelDates.rangeText || 'N/A';
+
+        // Deposit is only relevant to the fixed-itinerary form (31190) - the
+        // customise form (31192) doesn't take payment. "Deposit Due: £400
+        // (£200 per passenger)" - the per-passenger bracket is only shown
+        // when there's more than one passenger (a single passenger's deposit
+        // is already the per-passenger rate, so repeating it is redundant).
+        let depositHtml = '';
+        if (!isCustomizeForm && values['deposit']) {
+            const totalPassengers = getTotalPassengerCount();
+            const depositTotal = parseFloat(String(values['deposit']).replace(/[^0-9.]/g, '')) || 0;
+            const perPassenger = totalPassengers > 0 ? depositTotal / totalPassengers : depositTotal;
+            depositHtml = `<div class="summary-deposit-due"><strong>Deposit Due:</strong> ${window.atgFormatCurrency(depositTotal)}${totalPassengers > 1 ? ' (' + window.atgFormatCurrency(perPassenger) + ' per passenger)' : ''}</div>`;
+        }
+
         const summaryHtml = `
             <div class="summary-wrapper">
                 <div class="summary-holiday-details summary-inner-wrapper">
                     <div class="summary-container">
                         <div class="summary-title">Holiday Details</div>
                         <div class="summary-trip-selected"><strong>Trip Selected:</strong> ${atg_tour_data.page_name || 'N/A'}</div>
-                        <div class="summary-trip-length"><strong>Trip Length:</strong> ${
-                            itineraryTripLength
-                                ? itineraryTripLength
-                                : (typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")
-                                    ? (
-                                        (() => {
-                                            const el = document.querySelector("div.trip_duration .jet-headline__second .jet-headline__label");
-                                            return el && el.textContent ? el.textContent : (values['triptitle'] || 'N/A');
-                                        })()
-                                    )
-                                    : (values['triptitle'] || 'N/A'))
-                        }</div>
-                        <div class="summary-departure-date"><strong>Departure Date:</strong> ${values['_departure'] ? window.atgFormatDDMMYYYY(values['_departure']) : 'N/A'}</div>
+                        <div class="summary-trip-length"><strong>Trip Length:</strong> ${tripLengthText}</div>
+                        <div class="summary-departure-date"><strong>Travel Dates:</strong> ${travelDatesText}</div>
+                        ${depositHtml}
                         ${itineraryListHtml}
                     </div>
                 </div>
@@ -2544,4 +2680,68 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
     });
+
+    // Hide the customise-itinerary form (31192) once it submits successfully,
+    // leaving just the "Thankyou for submitting..." message visible instead of
+    // the filled-out form still sitting above it. JetFormBuilder fires this
+    // jQuery event on `document` from its own frontend runtime (see onSuccess()
+    // in jetformbuilder's assets/build/frontend/main.js) with the form's own
+    // root <form data-form-id="..."> element as the third argument.
+    //
+    // insertMessage() (same runtime) appends the success message's
+    // ".jet-form-builder-messages-wrap" as a CHILD of that same <form> element
+    // (not as a sibling after it, despite the empty placeholder wrap the PHP
+    // template renders there - see templates/common/end-form.php) - confirmed
+    // live, since hiding the whole <form> hid the message along with it on the
+    // first attempt. So instead of hiding the form itself, hide every one of
+    // its OTHER direct children, leaving the message wrap in place and visible.
+    // Once the customise-itinerary form (31192) has submitted successfully,
+    // there's nothing left to do in the popup, so also hide the popup's own
+    // title heading and footer (Contact Us | Booking Conditions) and shrink
+    // the popup box down to fit just the success message. The title/footer
+    // are separate Elementor widgets alongside the form inside the popup
+    // template (not children of the <form> itself, so the block above doesn't
+    // touch them) - identified live as .elementor-element-240d25cb (the "Book
+    // ..." heading widget) and .elementor-element-28733dd1 (the text-editor
+    // widget containing the "Contact Us | Booking Conditions" links). Falls
+    // back to matching by content if those Elementor-generated IDs ever
+    // change (e.g. the popup template gets rebuilt), since those IDs are
+    // otherwise just opaque per-widget hashes.
+    function hidePopupChromeOnSuccess(formEl) {
+        const popup = formEl.closest('.elementor-location-popup') || formEl.closest('.dialog-widget-content');
+        if (!popup) return;
+
+        const titleWidget = popup.querySelector('.elementor-element-240d25cb')
+            || Array.from(popup.querySelectorAll('.elementor-widget-heading')).find(function(w) {
+                return /^Book /.test(w.textContent.trim());
+            });
+        if (titleWidget) titleWidget.style.display = 'none';
+
+        const footerWidget = popup.querySelector('.elementor-element-28733dd1')
+            || Array.from(popup.querySelectorAll('.elementor-widget-text-editor')).find(function(w) {
+                return w.textContent.includes('Contact Us') && w.textContent.includes('Booking Conditions');
+            });
+        if (footerWidget) footerWidget.style.display = 'none';
+
+        // Shrink the popup itself now that it's just showing a short success
+        // message. The visible width comes from the inner .dialog-widget-content
+        // (centred via margin auto inside the full-viewport .elementor-popup-modal
+        // overlay), so capping that is enough - no repositioning needed.
+        const dialogContent = formEl.closest('.dialog-widget-content');
+        if (dialogContent) dialogContent.classList.add('atg-compact-popup');
+    }
+
+    if (window.jQuery) {
+        jQuery(document).on('jet-form-builder/ajax/on-success', function(e, response, $rootNode) {
+            const formEl = $rootNode && $rootNode[0];
+            if (formEl && formEl.dataset && formEl.dataset.formId === '31192') {
+                Array.from(formEl.children).forEach(function(child) {
+                    if (!child.classList.contains('jet-form-builder-messages-wrap')) {
+                        child.style.display = 'none';
+                    }
+                });
+                hidePopupChromeOnSuccess(formEl);
+            }
+        });
+    }
 });

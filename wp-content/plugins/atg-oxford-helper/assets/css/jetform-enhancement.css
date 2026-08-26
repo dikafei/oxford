@@ -116,6 +116,14 @@ body span.flatpickr-day
 .room_main .wp-block-column:has([data-update-field-name="number_of_passenger"]) {
     display: none !important;
 }
+
+/* The customise-itinerary form (31192) doesn't take payment, so it has no
+   use for the Subtotal field either - hide it there only (the main booking
+   form still needs it). Matches both the main room and any additional
+   rooms, same reasoning as the number_of_passenger rule above. */
+form[data-form-id="31192"] .room_main .wp-block-column:has([data-update-field-name="sub_total"]) {
+    display: none !important;
+}
 .room_main h3 {
     display: none;
 }
@@ -650,4 +658,18 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
 
 .atg-customized-repeater .jet-form-builder-repeater__items .jet-form-builder-repeater__row .jet-form-builder-repeater__row-fields .wp-block-columns .wp-block-column .jet-sm-gb-wrapper {
     margin-block-start: 0;
+}
+
+/* Once the customise-itinerary form (31192) submits successfully, the popup
+   only has a short "Thank you..." message left to show (title, footer, and
+   all form fields are hidden by jetform-enhancement.js at that point) - so
+   shrink the popup down to fit, instead of leaving it at its full multi-step-
+   form size. Class is added by hidePopupChromeOnSuccess() in that same file.
+   The popup's visible width comes from .dialog-widget-content, which is
+   centred (margin: 0 auto) inside the full-viewport .elementor-popup-modal
+   overlay, so capping just this is enough - no repositioning needed. */
+.dialog-widget-content.atg-compact-popup {
+    max-width: 480px !important;
+    width: 90% !important;
+    padding: 30px !important;
 }

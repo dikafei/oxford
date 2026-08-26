@@ -312,6 +312,100 @@ function atg_format_ddmmyyyy($date_str) {
 }
 
 /**
+ * Parse any date-ish field value ("2025-09-18", "2025-09-18T00:00",
+ * "18/09/2025") into a DateTime, or null if it can't be parsed. Shared by
+ * atg_format_short_date()/atg_compute_travel_dates() below.
+ *
+ * @param string $date_str
+ * @return DateTime|null
+ */
+function atg_parse_flexible_date($date_str) {
+    $date_str = trim((string) $date_str);
+    if ($date_str === '') {
+        return null;
+    }
+
+    $date_part = strpos($date_str, 'T') !== false ? strtok($date_str, 'T') : $date_str;
+
+    if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{4}$/', $date_part)) {
+        $dt = DateTime::createFromFormat('d/m/Y', $date_part);
+        if ($dt !== false) {
+            return $dt;
+        }
+    }
+
+    foreach (array('Y-m-d', 'Y-n-j') as $format) {
+        $dt = DateTime::createFromFormat($format, $date_part);
+        if ($dt !== false) {
+            return $dt;
+        }
+    }
+
+    $timestamp = strtotime($date_str);
+    if ($timestamp !== false) {
+        $dt = new DateTime();
+        $dt->setTimestamp($timestamp);
+        return $dt;
+    }
+
+    return null;
+}
+
+/**
+ * Format any date-ish string as "29 Jul 26" - unambiguous regardless of
+ * whether the reader expects UK (dd/mm) or US (mm/dd) ordering. This is what
+ * the review page, thank-you page, and confirmation emails show;
+ * atg_format_ddmmyyyy() above is kept only for anywhere still using dd/mm/yyyy.
+ *
+ * @param string $date_str Raw date value from a submitted field.
+ * @return string Date formatted as "j M y", or the original string if it can't be parsed.
+ */
+function atg_format_short_date($date_str) {
+    $dt = atg_parse_flexible_date($date_str);
+    return $dt ? $dt->format('j M y') : (string) $date_str;
+}
+
+/**
+ * Builds the "Travel Dates" range shown in place of a single "Departure
+ * Date": start date is the submitted departure date; end date is start plus
+ * the trip's number of nights. Nights come from whichever of these is
+ * available - $itinerary_total_nights (customise form's summed Itinerary
+ * rows) takes priority since it's an exact count, falling back to parsing
+ * the leading number out of a "9 Day Itinerary"-style trip length label
+ * (fixed-itinerary forms - "9 Day" means 9 days = 8 nights).
+ *
+ * @param string $departure_raw       Raw departure date field value.
+ * @param string $trip_length_label   Trip length text (e.g. "9 Day Itinerary"), used as a fallback.
+ * @param int    $itinerary_total_nights Summed nights from the customise form's Itinerary rows, or 0.
+ * @return array {range: string, start: string, end: string} - end/range fall back to just the start date if nights can't be determined.
+ */
+function atg_compute_travel_dates($departure_raw, $trip_length_label = '', $itinerary_total_nights = 0) {
+    $start_dt = atg_parse_flexible_date($departure_raw);
+    if (!$start_dt) {
+        return array('range' => '', 'start' => '', 'end' => '');
+    }
+
+    $start = $start_dt->format('j M y');
+
+    $nights = null;
+    if ($itinerary_total_nights > 0) {
+        $nights = intval($itinerary_total_nights);
+    } elseif (!empty($trip_length_label) && preg_match('/(\d+)\s*Day/i', $trip_length_label, $m)) {
+        $nights = intval($m[1]) - 1;
+    }
+
+    if ($nights === null || $nights < 0) {
+        return array('range' => $start, 'start' => $start, 'end' => '');
+    }
+
+    $end_dt = clone $start_dt;
+    $end_dt->modify('+' . $nights . ' days');
+    $end = $end_dt->format('j M y');
+
+    return array('range' => $start . ' - ' . $end, 'start' => $start, 'end' => $end);
+}
+
+/**
  * Render the "Holiday Details / Lead Passenger Details / Room Details / Additional
  * Requests" boxes, using the exact same summary-wrapper / summary-container /
  * summary-title / summary-room-details-container classes as the booking review
@@ -321,6 +415,52 @@ function atg_format_ddmmyyyy($date_str) {
  * @param array $fields Associative array of submitted field_name => field_value.
  * @return string HTML for the summary sections (without the closing note box).
  */
+/**
+ * Read the "Itinerary" repeater (customise-itinerary form only - 31190 and
+ * other fixed-trip forms don't have this field at all) out of a submitted
+ * fields array, regardless of which of the two shapes it comes in as:
+ *  - flat bracket-notation keys, e.g. $fields['Itinerary[0][hotel_location]']
+ *    (how the DB records table / URL-style form data represents it)
+ *  - a nested array under $fields['Itinerary'][0]['hotel_location']
+ *    (how JetFormBuilder's own repeater parser resolves it via context)
+ *
+ * @param array $fields Associative array of submitted field_name => field_value.
+ * @return array List of ['location' => ..., 'hotel' => ..., 'nights' => int] rows, in submitted order.
+ */
+function atg_extract_itinerary_rows($fields) {
+    $rows = array();
+
+    // Nested shape.
+    if (!empty($fields['Itinerary']) && is_array($fields['Itinerary'])) {
+        foreach ($fields['Itinerary'] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rows[] = array(
+                'location' => isset($row['hotel_location']) ? $row['hotel_location'] : '',
+                'hotel'    => isset($row['hotel_name']) ? $row['hotel_name'] : '',
+                'nights'   => isset($row['nights_at_this_hotel']) ? intval($row['nights_at_this_hotel']) : 0,
+            );
+        }
+        if (!empty($rows)) {
+            return $rows;
+        }
+    }
+
+    // Flat bracket-notation shape.
+    $i = 0;
+    while (array_key_exists('Itinerary[' . $i . '][hotel_location]', $fields)) {
+        $rows[] = array(
+            'location' => $fields['Itinerary[' . $i . '][hotel_location]'],
+            'hotel'    => isset($fields['Itinerary[' . $i . '][hotel_name]']) ? $fields['Itinerary[' . $i . '][hotel_name]'] : '',
+            'nights'   => isset($fields['Itinerary[' . $i . '][nights_at_this_hotel]']) ? intval($fields['Itinerary[' . $i . '][nights_at_this_hotel]']) : 0,
+        );
+        $i++;
+    }
+
+    return $rows;
+}
+
 function atg_render_booking_detail_boxes($fields) {
     // ---- Holiday Details ----
     $post_id = 0;
@@ -329,12 +469,37 @@ function atg_render_booking_detail_boxes($fields) {
     } elseif (!empty($fields['__queried_post_id'])) {
         $post_id = intval($fields['__queried_post_id']);
     }
-    $trip_length = isset($fields['triptitle']) ? esc_html($fields['triptitle']) : '';
+
+    // Itinerary rows (customise form only) - listed under Holiday Details, and
+    // summed into Trip Length instead of the fixed trip_duration_label those
+    // forms don't have, mirroring generateCompleteSummary() in jetform-enhancement.js.
+    $itinerary_rows = atg_extract_itinerary_rows($fields);
+    $itinerary_html = '';
+    $itinerary_total_nights = 0;
+    foreach ($itinerary_rows as $row) {
+        $itinerary_total_nights += $row['nights'];
+        $itinerary_html .= '<div class="summary-itinerary-stop"><strong>' . esc_html($row['location'] ?: 'N/A') . '</strong>'
+            . ($row['hotel'] !== '' ? ' &ndash; ' . esc_html($row['hotel']) : '')
+            . ($row['nights'] ? ' &ndash; ' . esc_html($row['nights']) . ' night' . ($row['nights'] === 1 ? '' : 's') : '')
+            . '</div>';
+    }
+    if ($itinerary_html !== '') {
+        $itinerary_html = '<div class="summary-itinerary-list"><strong>Itinerary:</strong>' . $itinerary_html . '</div>';
+    }
+
+    $trip_length = !empty($itinerary_rows)
+        ? ($itinerary_total_nights . ' night' . ($itinerary_total_nights === 1 ? '' : 's'))
+        : (isset($fields['triptitle']) ? $fields['triptitle'] : '');
     $trip_selected = $post_id ? get_the_title($post_id) : '';
     if (empty($trip_selected)) {
-        $trip_selected = $trip_length;
+        $trip_selected = isset($fields['triptitle']) ? $fields['triptitle'] : (!empty($itinerary_rows) ? 'Custom Itinerary Request' : '');
     }
-    $departure = isset($fields['_departure']) ? esc_html(atg_format_ddmmyyyy($fields['_departure'])) : '';
+    $travel_dates = atg_compute_travel_dates(
+        isset($fields['_departure']) ? $fields['_departure'] : '',
+        $trip_length,
+        $itinerary_total_nights
+    );
+    $departure = esc_html($travel_dates['range']);
 
     // ---- Lead Passenger Details ----
     $lead_title = isset($fields['title_field']) ? $fields['title_field'] : '';
@@ -350,6 +515,7 @@ function atg_render_booking_detail_boxes($fields) {
 
     // ---- Room Details: walk main room + each additional room, same as the review page ----
     $rooms_html = '';
+    $total_passengers = 0;
     $i = 0;
     while (true) {
         $suffix = $i > 0 ? '_' . $i : '';
@@ -361,6 +527,7 @@ function atg_render_booking_detail_boxes($fields) {
 
         $room_type = rawRoomTypeToDisplayRoomType($fields[$room_key]);
         $passenger_count = isset($fields['number_of_passenger' . $suffix]) ? intval($fields['number_of_passenger' . $suffix]) : 0;
+        $total_passengers += $passenger_count;
         $subtotal = isset($fields['sub_total' . $suffix]) ? atg_format_currency($fields['sub_total' . $suffix]) : '';
 
         $names = array();
@@ -390,6 +557,20 @@ function atg_render_booking_detail_boxes($fields) {
         $rooms_html = '<div>No room data available</div>';
     }
 
+    // "Deposit Paid: £400 (£200 per passenger)" - this is the thank-you page,
+    // shown after the deposit has actually gone through, so it's "Paid" here
+    // rather than "Due" (see atg_render_booking_detail_boxes_email() /
+    // booking_summary_shortcode() for the review-page/email wording). The
+    // per-passenger bracket is only shown for more than one passenger.
+    $deposit_html = '';
+    if (isset($fields['deposit']) && $fields['deposit'] !== '') {
+        $deposit_total = (float) preg_replace('/[^0-9.]/', '', (string) $fields['deposit']);
+        $per_passenger = $total_passengers > 0 ? $deposit_total / $total_passengers : $deposit_total;
+        $deposit_html = '<div class="summary-deposit-due"><strong>Deposit Paid:</strong> ' . atg_format_currency($deposit_total)
+            . ($total_passengers > 1 ? ' (' . atg_format_currency($per_passenger) . ' per passenger)' : '')
+            . '</div>';
+    }
+
     $additional_requests_html = '';
     if (!empty($additional_requests)) {
         $additional_requests_html = '
@@ -407,8 +588,10 @@ function atg_render_booking_detail_boxes($fields) {
                 <div class="summary-container">
                     <div class="summary-title">Holiday Details</div>
                     <div class="summary-trip-selected"><strong>Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
-                    <div class="summary-trip-length"><strong>Trip Length:</strong> ' . $trip_length . '</div>
-                    <div class="summary-departure-date"><strong>Departure Date:</strong> ' . $departure . '</div>
+                    <div class="summary-trip-length"><strong>Trip Length:</strong> ' . esc_html($trip_length) . '</div>
+                    <div class="summary-departure-date"><strong>Travel Dates:</strong> ' . $departure . '</div>
+                    ' . $deposit_html . '
+                    ' . $itinerary_html . '
                 </div>
             </div>
 
@@ -509,6 +692,358 @@ function atg_render_staff_only_booking_info($fields, $ref = '') {
     return $html;
 }
 
+/**
+ * ============================================================
+ * Confirmation email HTML (beautified, email-client-safe).
+ * ============================================================
+ * wp_mail() bodies never load jetform-enhancement.css, so the on-page
+ * summary markup (atg_render_booking_detail_boxes(), which relies entirely
+ * on that stylesheet's .summary-* classes) was rendering as plain unstyled
+ * text in an inbox - no card borders, no logo styling, no colour. These
+ * functions rebuild the same information as a self-contained, table-based,
+ * fully inline-styled email instead, since most inboxes strip <style>
+ * blocks and many (Outlook especially) ignore external/embedded CSS
+ * entirely. The on-page thank-you page output is untouched and still uses
+ * atg_render_booking_detail_boxes() + the real stylesheet.
+ */
+
+define( 'ATG_EMAIL_ACCENT', '#FF6D00' );
+define( 'ATG_EMAIL_DARK', '#1a2e27' );
+define( 'ATG_EMAIL_TEXT', '#2c3e50' );
+define( 'ATG_EMAIL_MUTED', '#5a6672' );
+define( 'ATG_EMAIL_BORDER', '#e2e8f0' );
+define( 'ATG_EMAIL_CARD_BG', '#f9fafb' );
+
+/**
+ * One "Label: value" line inside an email section card.
+ *
+ * @param string $label
+ * @param string $value HTML-safe value (caller is responsible for escaping).
+ * @param bool   $last  True to omit the bottom margin (last row in a card).
+ * @return string
+ */
+function atg_email_row( $label, $value, $last = false ) {
+    if ( $value === '' || $value === null ) {
+        return '';
+    }
+    $margin = $last ? '0' : '0 0 8px';
+    return '<div style="margin:' . $margin . ';font-size:14px;color:#333333;line-height:1.5;">'
+        . '<strong style="color:' . ATG_EMAIL_DARK . ';">' . esc_html( $label ) . ':</strong> ' . $value
+        . '</div>';
+}
+
+/**
+ * A titled card (Holiday Details, Lead Passenger Details, etc.) - table-based
+ * so it renders consistently in Outlook's Word-based HTML engine, not just
+ * WebKit/Blink mail clients.
+ */
+function atg_email_section( $title, $inner_html ) {
+    if ( trim( (string) $inner_html ) === '' ) {
+        return '';
+    }
+    return '
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border:1px solid ' . ATG_EMAIL_BORDER . ';border-radius:6px;background-color:' . ATG_EMAIL_CARD_BG . ';">
+            <tr>
+                <td style="padding:16px 18px;">
+                    <div style="font-size:14px;font-weight:700;color:' . ATG_EMAIL_DARK . ';border-bottom:2px solid ' . ATG_EMAIL_ACCENT . ';padding-bottom:8px;margin-bottom:12px;">' . esc_html( $title ) . '</div>
+                    ' . $inner_html . '
+                </td>
+            </tr>
+        </table>';
+}
+
+/**
+ * Email version of atg_render_booking_detail_boxes() - same four sections,
+ * same fields, but built with inline styles instead of .summary-* classes.
+ *
+ * @param array $fields       Associative array of submitted field_name => field_value.
+ * @param bool  $show_pricing False omits the Subtotal row from each Room Details
+ *                            card - used for the customise-itinerary form (31192),
+ *                            which doesn't take payment and has no prices to show.
+ * @return string Inline-styled HTML for the confirmation email body.
+ */
+function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) {
+    // ---- Holiday Details ----
+    $post_id = 0;
+    if ( ! empty( $fields['post_id'] ) ) {
+        $post_id = intval( $fields['post_id'] );
+    } elseif ( ! empty( $fields['__queried_post_id'] ) ) {
+        $post_id = intval( $fields['__queried_post_id'] );
+    }
+
+    $itinerary_rows = atg_extract_itinerary_rows( $fields );
+    $itinerary_total_nights = 0;
+    $itinerary_inner = '';
+    foreach ( $itinerary_rows as $row ) {
+        $itinerary_total_nights += $row['nights'];
+        $itinerary_inner .= '<div style="font-size:14px;color:#333333;margin:0 0 4px;">&bull; <strong style="color:' . ATG_EMAIL_DARK . ';">' . esc_html( $row['location'] ?: 'N/A' ) . '</strong>'
+            . ( $row['hotel'] !== '' ? ' &ndash; ' . esc_html( $row['hotel'] ) : '' )
+            . ( $row['nights'] ? ' &ndash; ' . esc_html( $row['nights'] ) . ' night' . ( $row['nights'] === 1 ? '' : 's' ) : '' )
+            . '</div>';
+    }
+    if ( $itinerary_inner !== '' ) {
+        $itinerary_inner = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid ' . ATG_EMAIL_BORDER . ';">'
+            . '<div style="font-size:13px;font-weight:700;color:' . ATG_EMAIL_DARK . ';margin-bottom:6px;">Itinerary</div>'
+            . $itinerary_inner . '</div>';
+    }
+
+    $trip_length = ! empty( $itinerary_rows )
+        ? ( $itinerary_total_nights . ' night' . ( $itinerary_total_nights === 1 ? '' : 's' ) )
+        : ( isset( $fields['triptitle'] ) ? $fields['triptitle'] : '' );
+    $trip_selected = $post_id ? get_the_title( $post_id ) : '';
+    if ( empty( $trip_selected ) ) {
+        $trip_selected = isset( $fields['triptitle'] ) ? $fields['triptitle'] : ( ! empty( $itinerary_rows ) ? 'Custom Itinerary Request' : '' );
+    }
+    $travel_dates = atg_compute_travel_dates(
+        isset( $fields['_departure'] ) ? $fields['_departure'] : '',
+        $trip_length,
+        $itinerary_total_nights
+    );
+    $departure = esc_html( $travel_dates['range'] );
+
+    $holiday_rows = atg_email_row( 'Trip Selected', esc_html( $trip_selected ) )
+        . atg_email_row( 'Trip Length', esc_html( $trip_length ) )
+        . atg_email_row( 'Travel Dates', $departure, $itinerary_inner === '' )
+        . $itinerary_inner;
+
+    // ---- Lead Passenger Details ----
+    $lead_title = isset( $fields['title_field'] ) ? $fields['title_field'] : '';
+    $first_name = isset( $fields['first_name'] ) ? $fields['first_name'] : '';
+    $last_name = isset( $fields['last_name'] ) ? $fields['last_name'] : '';
+    $lead_name = esc_html( trim( preg_replace( '/\s+/', ' ', $lead_title . ' ' . $first_name . ' ' . $last_name ) ) );
+    $email_display = isset( $fields['email'] ) ? esc_html( $fields['email'] ) : '';
+    $phone = isset( $fields['phone'] ) ? esc_html( $fields['phone'] ) : '';
+    $address = isset( $fields['full_address'] ) && $fields['full_address'] !== '' ? nl2br( esc_html( $fields['full_address'] ) ) : 'N/A';
+
+    $lead_rows = atg_email_row( 'Name', $lead_name )
+        . atg_email_row( 'Email', $email_display )
+        . atg_email_row( 'Phone', $phone )
+        . atg_email_row( 'Address', $address, true );
+
+    // ---- Room Details: main room + each additional room, own white card per room ----
+    $room_cards = array();
+    $i = 0;
+    while ( true ) {
+        $suffix = $i > 0 ? '_' . $i : '';
+        $room_key = 'select_room' . $suffix;
+
+        if ( empty( $fields[ $room_key ] ) ) {
+            break;
+        }
+
+        $room_type = rawRoomTypeToDisplayRoomType( $fields[ $room_key ] );
+        $passenger_count = isset( $fields[ 'number_of_passenger' . $suffix ] ) ? intval( $fields[ 'number_of_passenger' . $suffix ] ) : 0;
+        $subtotal = isset( $fields[ 'sub_total' . $suffix ] ) ? atg_format_currency( $fields[ 'sub_total' . $suffix ] ) : '';
+
+        $names = array();
+        for ( $j = 1; $j <= $passenger_count; $j++ ) {
+            $t = isset( $fields[ 'passenger_title' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_title' . $suffix . '_' . $j ] : '';
+            $fn = isset( $fields[ 'passenger_first_name' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_first_name' . $suffix . '_' . $j ] : '';
+            $ln = isset( $fields[ 'passenger_last_name' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_last_name' . $suffix . '_' . $j ] : '';
+            $full = trim( preg_replace( '/\s+/', ' ', $t . ' ' . $fn . ' ' . $ln ) );
+            if ( $full !== '' ) {
+                $names[] = $full;
+            }
+        }
+
+        $room_cards[] = atg_email_row( 'Room Type', esc_html( $room_type ) )
+            . atg_email_row( 'Passengers', esc_html( $passenger_count ) )
+            . ( $show_pricing ? atg_email_row( 'Subtotal', $subtotal ) : '' )
+            . atg_email_row( 'Passenger Names', esc_html( implode( ', ', $names ) ), true );
+
+        $i++;
+    }
+
+    $rooms_inner = '';
+    $room_card_count = count( $room_cards );
+    foreach ( $room_cards as $idx => $card_rows ) {
+        $margin = ( $idx === $room_card_count - 1 ) ? '0' : '0 0 12px';
+        $rooms_inner .= '<div style="border:1px solid ' . ATG_EMAIL_BORDER . ';border-radius:6px;background-color:#ffffff;padding:14px 16px;margin:' . $margin . ';">' . $card_rows . '</div>';
+    }
+    if ( $rooms_inner === '' ) {
+        $rooms_inner = '<div style="font-size:14px;color:#333333;">No room data available</div>';
+    }
+
+    // ---- Additional Requests ----
+    $additional_requests = isset( $fields['additional_requests'] ) ? trim( $fields['additional_requests'] ) : '';
+    $additional_html = '';
+    if ( $additional_requests !== '' ) {
+        $additional_html = atg_email_section( 'Additional Requests', '<div style="font-size:14px;color:#333333;line-height:1.6;">' . nl2br( esc_html( $additional_requests ) ) . '</div>' );
+    }
+
+    return atg_email_section( 'Holiday Details', $holiday_rows )
+        . atg_email_section( 'Lead Passenger Details', $lead_rows )
+        . atg_email_section( 'Room Details', $rooms_inner )
+        . $additional_html;
+}
+
+/**
+ * Email version of atg_render_staff_only_booking_info() - same fields
+ * (promo code, consent checkboxes, marketing opt-in, how they heard about
+ * us), styled as an orange-accented card consistent with the rest of the
+ * email instead of ad-hoc inline styles.
+ *
+ * @param array      $fields Associative array of submitted field_name => field_value.
+ * @param int|string $ref    Booking reference (DB record ID) to display, if known.
+ * @return string HTML for a "staff only" card.
+ */
+function atg_render_staff_only_booking_info_email( $fields, $ref = '' ) {
+    $how_heard_map = array(
+        'travelled_previously' => 'Travelled with ATG previously',
+        'word_of_mouth'        => 'Word of mouth',
+        'referral_friend'      => 'Referral - friend',
+        'referral_family'      => 'Referral - family',
+        'internet'             => 'Internet search',
+        'travel_agent'         => 'Travel Agent',
+        'magazine'             => 'Magazine',
+        'newspaper'            => 'Newspaper',
+    );
+
+    $promo_code = isset( $fields['promo_code'] ) ? trim( $fields['promo_code'] ) : '';
+    $how_heard_raw = isset( $fields['how_did_you_hear_about_us'] ) ? trim( $fields['how_did_you_hear_about_us'] ) : '';
+    $how_heard = $how_heard_raw !== ''
+        ? ( isset( $how_heard_map[ $how_heard_raw ] ) ? $how_heard_map[ $how_heard_raw ] : $how_heard_raw )
+        : 'Not specified';
+
+    $marketing_opt_in = ! empty( $fields['promotions_and_marketing_material'] ) ? 'Yes' : 'No';
+    $booking_conditions = ! empty( $fields['accept_atg_booking_conditions'] ) ? 'Yes' : 'No';
+    $privacy_policy = ! empty( $fields['accept_atg_privacy_policy'] ) ? 'Yes' : 'No';
+    $travel_insurance = ! empty( $fields['travel_insurance'] ) ? 'Yes' : 'No';
+
+    $rows = '';
+    if ( $ref !== '' ) {
+        $rows .= atg_email_row( 'Reference', '#' . esc_html( $ref ) );
+    }
+    // Only shown when the customer actually entered a promo code - skip the
+    // row entirely rather than displaying "Promo Code Used: None".
+    if ( $promo_code !== '' ) {
+        $rows .= atg_email_row( 'Promo Code Used', esc_html( $promo_code ) );
+    }
+    $rows .= atg_email_row( 'How Did You Hear About Us', esc_html( $how_heard ) )
+        . atg_email_row( 'Opted Into Marketing', $marketing_opt_in )
+        . atg_email_row( 'Accepted Booking Conditions', $booking_conditions )
+        . atg_email_row( 'Accepted Privacy Policy', $privacy_policy )
+        . atg_email_row( 'Confirmed Travel Insurance', $travel_insurance, true );
+
+    return '
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border:1px solid #f0c39a;border-radius:6px;background-color:#fff8f0;">
+            <tr>
+                <td style="padding:16px 18px;">
+                    <div style="font-size:14px;font-weight:700;color:#b35c00;border-bottom:2px solid ' . ATG_EMAIL_ACCENT . ';padding-bottom:8px;margin-bottom:12px;">Additional Booking Information (Staff Only)</div>
+                    ' . $rows . '
+                </td>
+            </tr>
+        </table>';
+}
+
+/**
+ * Builds the greeting + headline + detail sections + closing note that goes
+ * inside atg_build_confirmation_email()'s content cell. Shared by both
+ * 31190's deposit-confirmation email and 31192's enquiry-confirmation email.
+ *
+ * @param string $greeting     "Dear Mr Smith," (already HTML-safe).
+ * @param string $headline     Main confirmation sentence (already HTML-safe, may include inline markup).
+ * @param string $trip_name    Trip/tour name - escaped internally.
+ * @param array  $fields       Submitted field_name => field_value.
+ * @param bool   $is_internal  True to also include the staff-only info card.
+ * @param mixed  $ref          Booking/enquiry reference, only used when $is_internal is true.
+ * @param bool   $show_pricing False omits the Subtotal row from Room Details - see
+ *                             atg_render_booking_detail_boxes_email().
+ * @return string
+ */
+function atg_build_confirmation_email_content( $greeting, $headline, $trip_name, $fields, $is_internal = false, $ref = '', $show_pricing = true ) {
+    $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
+    $note_message = isset( $settings['atg_booking_note_message'] ) ? $settings['atg_booking_note_message'] : '';
+    $note_closing_line = isset( $settings['atg_booking_note_closing_line'] ) ? $settings['atg_booking_note_closing_line'] : '';
+
+    $html = '<p style="margin:0 0 16px;font-size:15px;">' . $greeting . '</p>'
+        . '<h2 style="margin:0 0 6px;font-size:18px;color:' . ATG_EMAIL_DARK . ';font-weight:700;line-height:1.4;">' . $headline . '</h2>'
+        . '<h4 style="margin:0 0 24px;font-size:15px;color:' . ATG_EMAIL_ACCENT . ';font-weight:700;">' . esc_html( $trip_name ) . '</h4>'
+        . atg_render_booking_detail_boxes_email( $fields, $show_pricing );
+
+    if ( $is_internal ) {
+        $html .= atg_render_staff_only_booking_info_email( $fields, $ref );
+    }
+
+    if ( $note_message !== '' || $note_closing_line !== '' ) {
+        $html .= '<div style="margin-top:8px;padding-top:20px;border-top:1px solid ' . ATG_EMAIL_BORDER . ';font-size:13px;color:' . ATG_EMAIL_MUTED . ';line-height:1.6;">';
+        if ( $note_message !== '' ) {
+            $html .= '<p style="margin:0 0 10px;">' . nl2br( esc_html( $note_message ) ) . '</p>';
+        }
+        if ( $note_closing_line !== '' ) {
+            $html .= '<p style="margin:0;font-weight:700;color:' . ATG_EMAIL_TEXT . ';">' . esc_html( $note_closing_line ) . '</p>';
+        }
+        $html .= '</div>';
+    }
+
+    return $html;
+}
+
+/**
+ * Wraps confirmation-email content in a full, table-based HTML email shell:
+ * branded dark-green header with the logo, the content cell, then a contact
+ * footer band (team name/phone/email). Self-contained inline styles only -
+ * no <style> block or external stylesheet, since most inboxes strip or
+ * ignore both.
+ *
+ * @param string $inner_html Content built by atg_build_confirmation_email_content().
+ * @param string $preheader  Optional short preview text shown next to the subject line in inbox lists.
+ * @return string Full <html>...</html> document, ready to hand to wp_mail().
+ */
+function atg_build_confirmation_email( $inner_html, $preheader = '' ) {
+    $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
+    $logo_url = isset( $settings['atg_logo_url'] ) ? esc_url( $settings['atg_logo_url'] ) : '';
+    $team_name = isset( $settings['atg_footer_team_name'] ) ? esc_html( $settings['atg_footer_team_name'] ) : 'ATG Reservations';
+    $footer_phone = isset( $settings['atg_footer_phone'] ) ? esc_html( $settings['atg_footer_phone'] ) : '';
+    $footer_email = isset( $settings['atg_footer_email'] ) ? esc_html( $settings['atg_footer_email'] ) : '';
+
+    $preheader_html = '';
+    if ( $preheader !== '' ) {
+        $preheader_html = '<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">' . esc_html( $preheader ) . '</div>';
+    }
+
+    $logo_html = $logo_url !== ''
+        ? '<img src="' . $logo_url . '" alt="' . esc_attr( $team_name ) . '" width="150" style="display:block;margin:0 auto;max-width:150px;height:auto;border:0;">'
+        : '<span style="color:#ffffff;font-size:18px;font-weight:700;">' . $team_name . '</span>';
+
+    return '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>' . $team_name . '</title>
+</head>
+<body style="margin:0;padding:0;background-color:#eef1f4;">
+' . $preheader_html . '
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef1f4;">
+<tr>
+<td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background-color:#ffffff;border-radius:8px;border:1px solid ' . ATG_EMAIL_BORDER . ';font-family:Arial, Helvetica, sans-serif;">
+<tr>
+<td style="background-color:' . ATG_EMAIL_DARK . ';padding:26px 30px;text-align:center;border-radius:8px 8px 0 0;">
+' . $logo_html . '
+</td>
+</tr>
+<tr>
+<td style="padding:32px 30px;color:' . ATG_EMAIL_TEXT . ';font-size:14px;line-height:1.6;">
+' . $inner_html . '
+</td>
+</tr>
+<tr>
+<td style="background-color:#f4f6f8;border-top:1px solid ' . ATG_EMAIL_BORDER . ';border-radius:0 0 8px 8px;padding:20px 30px;text-align:center;">
+<p style="margin:0 0 4px;font-weight:700;color:' . ATG_EMAIL_DARK . ';font-size:13px;">' . $team_name . '</p>
+<p style="margin:0 0 2px;color:' . ATG_EMAIL_MUTED . ';font-size:12px;">Tel: ' . $footer_phone . '</p>
+<p style="margin:0;color:' . ATG_EMAIL_MUTED . ';font-size:12px;">Email: <a href="mailto:' . $footer_email . '" style="color:' . ATG_EMAIL_ACCENT . ';text-decoration:none;">' . $footer_email . '</a></p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>';
+}
+
 function booking_summary_shortcode() {
     if (empty($_GET)) {
         return "<p>No booking details found.</p>";
@@ -590,26 +1125,22 @@ function booking_summary_shortcode() {
                 ($formFields['title_field'] ?? '') . ' ' . ($formFields['first_name'] ?? '') . ' ' . ($formFields['last_name'] ?? '')
             ));
 
-            $footer_html = '
-                <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #ddd; text-align: center; color: #666; font-size: 13px;">
-                    <p style="margin: 4px 0;"><strong>' . $team_name . '</strong></p>
-                    <p style="margin: 4px 0;">Tel: ' . $footer_phone . '</p>
-                    <p style="margin: 4px 0;">Email: ' . $footer_email . '</p>
-                </div>';
+            // Beautified, inline-styled HTML email (wp_mail() never loads
+            // jetform-enhancement.css, so the .summary-* classes used by
+            // atg_render_booking_detail_boxes() render unstyled in an inbox -
+            // see atg_build_confirmation_email()/atg_build_confirmation_email_content()).
+            $email_headline = 'Thank you for your deposit of <span style="color:' . ATG_EMAIL_ACCENT . ';font-weight:700;">' . $emailDeposit . '</span>, your booking is now being processed by our Reservations Team.';
+            $email_trip_heading = 'Book ' . $tour_name;
 
-            $body_common = '
-                <div class="summary-logo-wrapper"><img class="booking-summary-logo" src="' . $logo_url . '"></div>
-                <p>' . $greeting . '</p>
-                <h2>Thank you for your deposit of <span>' . $emailDeposit . '</span>, your booking is now being processed by our Reservations Team.</h2>
-                <h4 class="booking-summary-deposit">Book ' . esc_html($tour_name) . '</h4>
-                ' . atg_render_booking_detail_boxes($formFields);
+            $emailContentCustomer = atg_build_confirmation_email(
+                atg_build_confirmation_email_content( $greeting, $email_headline, $email_trip_heading, $formFields, false ),
+                wp_strip_all_tags( $email_headline )
+            );
 
-            // Customer copy: booking details + footer
-            $emailContentCustomer = '<div class="booking-summary">' . $body_common . $footer_html . '</div>';
-
-            // Internal copy: same details + a staff-only box (promo code, consent checkboxes,
-            // marketing opt-in, how they heard about us) so Reservations has everything to process it
-            $emailContentInternal = '<div class="booking-summary">' . $body_common . atg_render_staff_only_booking_info($formFields, $ref) . $footer_html . '</div>';
+            $emailContentInternal = atg_build_confirmation_email(
+                atg_build_confirmation_email_content( $greeting, $email_headline, $email_trip_heading, $formFields, true, $ref ),
+                wp_strip_all_tags( $email_headline )
+            );
 
             $wpdb->insert($fields_table, array('record_id' => $result['id'], 'field_name' => 'email_notification', 'field_value' => 'yes'), array('%d', '%s', '%s'));
 
@@ -954,3 +1485,206 @@ function atg_add_stripe_customer_params( $request ) {
 
     $request->set_body( $body );
 }
+
+/**
+ * Form 31192 (the customise-itinerary form) has JetFormBuilder's own built-in
+ * "Send Email" action configured (mail_to: the customer's email field, BCC:
+ * internal addresses) - but its content is a raw 4-line macro string
+ * ("Departure: %expected_departure%..."), marked as text/html so the \n line
+ * breaks don't even render, and it throws during processing (confirmed live:
+ * submitting the form always returns {"status":"failed"} regardless of any
+ * of our own hooks - this is pre-existing and not something we introduced).
+ *
+ * Rather than editing the form's stored action config in the database, strip
+ * that action out of the run right before actions execute (form_actions is
+ * already loaded by this point - see Form_Handler::send_form()) and replace
+ * it with our own richer, working implementation below (atg_send_customize_form_emails()).
+ */
+add_action( 'jet-form-builder/form-handler/before-send', function( $form_handler ) {
+    if ( ! is_object( $form_handler ) || ! method_exists( $form_handler, 'get_form_id' ) ) {
+        return;
+    }
+    if ( (int) $form_handler->get_form_id() !== 31192 ) {
+        return;
+    }
+    if ( isset( $form_handler->action_handler ) && method_exists( $form_handler->action_handler, 'unregister_action' ) ) {
+        $form_handler->action_handler->unregister_action( 'send_email' );
+    }
+} );
+
+/**
+ * Root cause of "Passenger Names" (and previously Subtotal) silently missing
+ * from BOTH forms' confirmation emails, despite being filled in and visible
+ * on the review page: JetFormBuilder's own field-saving pipeline
+ * (Controller::get_prepared_fields() in
+ * modules/form-record/controller.php) walks jet_fb_context()->generate_request(),
+ * which only knows about fields that are real JetFormBuilder field BLOCKS
+ * registered on the form. The passenger_title_N / passenger_first_name_N /
+ * passenger_last_name_N inputs are not blocks at all - they're raw
+ * <input>s created at runtime by generatePassengerFields() /
+ * generateAdditionalPassengerFields() (jetform-enhancement.js) once the
+ * customer picks a room - so that pipeline never sees them, and they're
+ * silently absent from *_jet_fb_records_fields even though they were
+ * genuinely submitted. The review page doesn't have this problem because it
+ * reads passenger names straight out of the live DOM instead (see the
+ * comment on this in generateCompleteSummary()).
+ *
+ * This backfills any submitted $_POST field JetFormBuilder didn't already
+ * save for a record, straight into *_jet_fb_records_fields, on every form's
+ * submission (not just 31192's) - so every later reader of the saved record
+ * (31190's thank-you-page/email pipeline, which queries this table on a
+ * separate pageview after the original POST is long gone; any admin
+ * tooling) sees the complete submission. Priority 5 so this has already run
+ * by the time the two form-specific email-sending hooks below (both
+ * priority 10, the default) read the data.
+ */
+add_action( 'jet-form-builder/form-record/save-record-action', function( $record_id, $request ) {
+    global $wpdb;
+
+    if ( empty( $record_id ) || empty( $_POST ) ) {
+        return;
+    }
+
+    $fields_table = $wpdb->prefix . 'jet_fb_records_fields';
+
+    $already_saved = $wpdb->get_col( $wpdb->prepare(
+        "SELECT field_name FROM $fields_table WHERE record_id = %d",
+        $record_id
+    ) );
+    $already_saved = array_flip( $already_saved );
+
+    $skip_keys = array( '__form_id', '__refer', '__is_ajax', 'action', '_wp_http_referer' );
+
+    foreach ( $_POST as $key => $value ) {
+        if (
+            isset( $already_saved[ $key ] ) ||
+            in_array( $key, $skip_keys, true ) ||
+            is_array( $value ) || // Nested fields (e.g. Itinerary[...]) are already handled by JFB's own pipeline.
+            strpos( $key, '_jfb_' ) === 0 ||
+            stripos( $key, 'nonce' ) !== false
+        ) {
+            continue;
+        }
+
+        $value = sanitize_text_field( wp_unslash( $value ) );
+        if ( $value === '' ) {
+            continue;
+        }
+
+        $wpdb->insert(
+            $fields_table,
+            array(
+                'record_id'   => $record_id,
+                'field_name'  => sanitize_text_field( $key ),
+                'field_type'  => 'computed',
+                'field_value' => $value,
+            ),
+            array( '%d', '%s', '%s', '%s' )
+        );
+    }
+}, 5, 2 );
+
+/**
+ * Sends confirmation emails for form 31192 (customise-itinerary), mirroring
+ * 31190's booking_summary_shortcode(): a customer copy plus a separate
+ * internal/admin copy with an extra staff-only info box, both built from
+ * atg_render_booking_detail_boxes() (shared with the review-page summary and
+ * 31190's emails, so all three read identically for the same submission).
+ *
+ * Unlike 31190 - which only sends its emails when the customer's browser
+ * *views* the thank-you page after a successful Stripe payment (there's no
+ * such page/gateway for this form) - this fires directly off the save_record
+ * action, exactly once per submission, via jet_fb_context()->resolve_request(),
+ * which returns a flat field_name => value array (repeater fields like
+ * "Itinerary" resolve to a nested array of rows) - see
+ * Action_Handler::process_single_action() in jetformbuilder. Firing once per
+ * submission (rather than once per page view) means the add_option() dedupe
+ * lock 31190 needs doesn't apply here.
+ */
+add_action( 'jet-form-builder/form-record/save-record-action', function( $record_id, $request ) {
+    if ( ! is_array( $request ) || (int) ( $request['__form_id'] ?? 0 ) !== 31192 ) {
+        return;
+    }
+
+    // $request (jet_fb_context()->resolve_request()) only reflects real
+    // JetFormBuilder field blocks - the passenger name fields aren't blocks
+    // (see the backfill hook above), so they're missing from $request even
+    // though they were genuinely submitted. Merge in $_POST as a fallback
+    // for anything $request is missing, keeping $request's own resolved
+    // values (proper types/sanitisation) as the source of truth wherever
+    // both have the same key - this doesn't depend on the backfill hook
+    // above having already run, so it's correct even if hook order ever
+    // changes.
+    $post_fallback = array();
+    foreach ( $_POST as $post_key => $post_value ) {
+        if ( ! is_array( $post_value ) ) {
+            $post_fallback[ $post_key ] = sanitize_text_field( wp_unslash( $post_value ) );
+        }
+    }
+    $fields = array_merge( $post_fallback, $request );
+    $email = isset( $fields['email'] ) ? sanitize_email( $fields['email'] ) : '';
+    if ( empty( $email ) ) {
+        return;
+    }
+
+    $ref = $record_id; // DB record ID, used as the booking/enquiry reference.
+
+    // Resolve the trip name the same way atg_render_booking_detail_boxes() does.
+    $post_id = 0;
+    if ( ! empty( $fields['post_id'] ) ) {
+        $post_id = intval( $fields['post_id'] );
+    } elseif ( ! empty( $fields['__queried_post_id'] ) ) {
+        $post_id = intval( $fields['__queried_post_id'] );
+    }
+    $tour_name = $post_id ? get_the_title( $post_id ) : '';
+    if ( empty( $tour_name ) ) {
+        $tour_name = ! empty( $fields['triptitle'] ) ? $fields['triptitle'] : 'Custom Itinerary Request';
+    }
+
+    // "Dear <<Title>> <<Surname>>" greeting, same pattern as 31190's emails.
+    $greet_title = isset( $fields['title_field'] ) ? trim( $fields['title_field'] ) : '';
+    $greet_surname = isset( $fields['last_name'] ) ? trim( $fields['last_name'] ) : '';
+    $greeting_name = trim( $greet_title . ' ' . $greet_surname );
+    $greeting = $greeting_name !== '' ? 'Dear ' . esc_html( $greeting_name ) . ',' : 'Dear Customer,';
+
+    // Full lead name, for the internal subject line.
+    $lead_full_name = trim( preg_replace(
+        '/\s+/',
+        ' ',
+        ( $fields['title_field'] ?? '' ) . ' ' . ( $fields['first_name'] ?? '' ) . ' ' . ( $fields['last_name'] ?? '' )
+    ) );
+
+    // No deposit line here (this form doesn't take payment) - just a plain
+    // acknowledgement, matching the popup's own success message ("Thankyou
+    // for submitting the information. We will get in touch with you with the
+    // customised plan shortly."). Beautified, inline-styled HTML email - see
+    // atg_build_confirmation_email()/atg_build_confirmation_email_content().
+    $email_headline = 'Thank you for submitting your customised itinerary request &ndash; our Reservations Team will be in touch shortly with a bespoke quote.';
+
+    // This form has no pricing (customer builds their own itinerary and gets
+    // a bespoke quote back), so the Subtotal row is omitted from Room Details.
+    $email_content_customer = atg_build_confirmation_email(
+        atg_build_confirmation_email_content( $greeting, $email_headline, $tour_name, $fields, false, '', false ),
+        wp_strip_all_tags( $email_headline )
+    );
+
+    $email_content_internal = atg_build_confirmation_email(
+        atg_build_confirmation_email_content( $greeting, $email_headline, $tour_name, $fields, true, $ref, false ),
+        wp_strip_all_tags( $email_headline )
+    );
+
+    $headers = array( 'Content-Type: text/html; charset=UTF-8' );
+    $client_subject = 'Custom Itinerary Request Received - #' . $ref . ' - ' . $tour_name;
+    $internal_subject = 'New Custom Itinerary Request - #' . $ref . ' - ' . $tour_name . ' - ' . $lead_full_name;
+
+    wp_mail( $email, $client_subject, $email_content_customer, $headers );
+
+    // Internal recipients are editable under Settings > ATG Booking Settings
+    // (comma-separated list), same as 31190.
+    $internal_recipients = function_exists( 'atg_get_internal_notification_emails' )
+        ? atg_get_internal_notification_emails()
+        : array( 'trip-enquiry@atg-oxford.com' );
+    foreach ( $internal_recipients as $internal_recipient ) {
+        wp_mail( $internal_recipient, $internal_subject, $email_content_internal, $headers );
+    }
+}, 10, 2 );
