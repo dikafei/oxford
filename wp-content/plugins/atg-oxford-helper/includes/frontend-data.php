@@ -334,6 +334,18 @@ function atg_parse_flexible_date($date_str) {
         }
     }
 
+    // dd-mm-yyyy (dashes) - what the Departure Date flatpickr fields now
+    // produce as of the JS dateFormat: "d-m-Y" hardcoding (2026-08-26).
+    // Checked explicitly (not left to strtotime() below) since a dash-
+    // separated date is genuinely ambiguous without a fixed field order -
+    // strtotime() can't be trusted to always read it as day-first.
+    if (preg_match('/^\d{1,2}-\d{1,2}-\d{4}$/', $date_part)) {
+        $dt = DateTime::createFromFormat('d-m-Y', $date_part);
+        if ($dt !== false) {
+            return $dt;
+        }
+    }
+
     foreach (array('Y-m-d', 'Y-n-j') as $format) {
         $dt = DateTime::createFromFormat($format, $date_part);
         if ($dt !== false) {
@@ -530,12 +542,21 @@ function atg_render_booking_detail_boxes($fields) {
         $total_passengers += $passenger_count;
         $subtotal = isset($fields['sub_total' . $suffix]) ? atg_format_currency($fields['sub_total' . $suffix]) : '';
 
+        // DOB (like Title/First/Last Name above) is only present in $fields via
+        // the generic $_POST backfill hook, since it's not a real JetFormBuilder
+        // field block - see the comment on jet-form-builder/form-record/save-record-action
+        // further down. Client asked for it to show on the thank-you page and
+        // review page too (2026-08-26), matching the email.
         $names = array();
         for ($j = 1; $j <= $passenger_count; $j++) {
             $t = isset($fields['passenger_title' . $suffix . '_' . $j]) ? $fields['passenger_title' . $suffix . '_' . $j] : '';
             $fn = isset($fields['passenger_first_name' . $suffix . '_' . $j]) ? $fields['passenger_first_name' . $suffix . '_' . $j] : '';
             $ln = isset($fields['passenger_last_name' . $suffix . '_' . $j]) ? $fields['passenger_last_name' . $suffix . '_' . $j] : '';
+            $dob = isset($fields['passenger_dob' . $suffix . '_' . $j]) ? $fields['passenger_dob' . $suffix . '_' . $j] : '';
             $full = trim(preg_replace('/\s+/', ' ', $t . ' ' . $fn . ' ' . $ln));
+            if ($dob !== '') {
+                $full .= ' (DOB: ' . $dob . ')';
+            }
             if ($full !== '') {
                 $names[] = $full;
             }
@@ -835,12 +856,25 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
         $passenger_count = isset( $fields[ 'number_of_passenger' . $suffix ] ) ? intval( $fields[ 'number_of_passenger' . $suffix ] ) : 0;
         $subtotal = isset( $fields[ 'sub_total' . $suffix ] ) ? atg_format_currency( $fields[ 'sub_total' . $suffix ] ) : '';
 
+        // DOB (passenger_dob_N / passenger_dob_<room>_N) is a plain text field
+        // typed as dd-mm-yyyy on the intake form (see the .atg-dob-input
+        // auto-format logic in jetform-enhancement.js) - shown here, on the
+        // thank-you page (atg_render_booking_detail_boxes(), same pattern),
+        // and on the review page (generateCompleteSummary() in
+        // jetform-enhancement.js, reads it live from the DOM). Like the name
+        // fields above, it's not a real JetFormBuilder field block, so it's
+        // only present in $fields via the generic $_POST backfill hook
+        // (jet-form-builder/form-record/save-record-action, above).
         $names = array();
         for ( $j = 1; $j <= $passenger_count; $j++ ) {
             $t = isset( $fields[ 'passenger_title' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_title' . $suffix . '_' . $j ] : '';
             $fn = isset( $fields[ 'passenger_first_name' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_first_name' . $suffix . '_' . $j ] : '';
             $ln = isset( $fields[ 'passenger_last_name' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_last_name' . $suffix . '_' . $j ] : '';
+            $dob = isset( $fields[ 'passenger_dob' . $suffix . '_' . $j ] ) ? $fields[ 'passenger_dob' . $suffix . '_' . $j ] : '';
             $full = trim( preg_replace( '/\s+/', ' ', $t . ' ' . $fn . ' ' . $ln ) );
+            if ( $dob !== '' ) {
+                $full .= ' (DOB: ' . $dob . ')';
+            }
             if ( $full !== '' ) {
                 $names[] = $full;
             }

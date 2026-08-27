@@ -90,6 +90,16 @@ function atgParseFlexibleDate(dateStr) {
         return new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
     }
 
+    // dd-mm-yyyy (dashes) - what the Departure Date flatpickr fields now
+    // produce as of the dateFormat: "d-m-Y" hardcoding (2026-08-26), so this
+    // needs to keep parsing correctly for Travel Dates / nights math further
+    // down the line. Distinguishable from the yyyy-mm-dd ISO check below by
+    // which group has 4 digits.
+    const dmyDash = dateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (dmyDash) {
+        return new Date(parseInt(dmyDash[3], 10), parseInt(dmyDash[2], 10) - 1, parseInt(dmyDash[1], 10));
+    }
+
     const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
     const iso = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     if (iso) {
@@ -98,6 +108,34 @@ function atgParseFlexibleDate(dateStr) {
 
     const parsed = new Date(dateStr);
     return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Strict dd-mm-yyyy validator for the passenger Date of Birth fields
+// (.atg-dob-input, auto-formatted with dashes as the customer types - see the
+// delegated 'input'/'blur' listeners further down). Rejects anything that
+// isn't a real calendar date (31-02-1990, 29-02-2001, month 13, etc.) and
+// anything in the future - just checking "10 characters were typed" wasn't
+// enough validation on its own.
+function atgIsValidDOB(str) {
+    if (typeof str !== 'string') return false;
+    const m = str.trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!m) return false;
+
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+
+    if (year < 1900 || month < 1 || month > 12 || day < 1) return false;
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    if (day > daysInMonth) return false;
+
+    const dob = new Date(year, month - 1, day);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (dob > today) return false; // no future birth dates
+
+    return true;
 }
 
 // Format any date-ish string as "29 Jul 26" - unambiguous regardless of
@@ -596,7 +634,7 @@ window.atgFormatCurrency = function(amount) {
         }
 
         const flatpickrInstance = flatpickr(fakeInput, {
-            dateFormat: "d/m/Y",
+            dateFormat: "d-m-Y", // hardcoded, not locale-dependent (2026-08-26)
             disableMobile: true,
             allowInput: false,
             clickOpens: true,
@@ -683,10 +721,23 @@ window.atgFormatCurrency = function(amount) {
                 }
             }
             
-            // Check if this field has blocked dates (should use datepicker) - PRIORITY 2
-            if (hasBlockedDates()) {
-              
-                
+            // PRIORITY 2 - everything that isn't a fixed date-range dropdown
+            // (PRIORITY 1 above) gets this custom Flatpickr-driven text field,
+            // whether or not the trip actually has blocked_dates configured.
+            //
+            // Previously, hasBlockedDates()===false left the *native*
+            // <input type="date"> untouched entirely (see the "else" branch
+            // this replaced) - which meant its displayed format followed
+            // whatever the customer's browser/OS locale happens to be
+            // (mm/dd/yyyy, dd/mm/yyyy, yyyy-mm-dd, ...), since that's just how
+            // native date inputs render - no HTML/CSS/JS attribute can force a
+            // specific display format on one. Routing every non-date-range
+            // case through the same Flatpickr text-field treatment (with an
+            // empty `disable` list when there's nothing to block) gives every
+            // Departure Date field the same hardcoded dd-mm-yyyy format
+            // (see initFlatpickrForElement()'s dateFormat) regardless of
+            // locale. (2026-08-26)
+            {
                 // Hide the original input completely
                 input.style.display = 'none';
                 
@@ -730,10 +781,6 @@ window.atgFormatCurrency = function(amount) {
                 
                 // Insert after the original input
                 input.parentNode.insertBefore(container, input.nextSibling);
-                
-               
-            } else {
-                // console.log("No date ranges or blocked dates found for:", input.id);
             }
         });
     }
@@ -932,7 +979,21 @@ document.addEventListener("DOMContentLoaded", function () {
         
         const selectedOption = roomSelect.options[roomSelect.selectedIndex];
         if (!selectedOption) return;
-        
+
+        // The "Select Room" placeholder has value="" - splitting/parsing that as
+        // a room type used to fall through to getPassengerLimits()'s default
+        // case ({min:1, max:10, default:1}), which silently set passengerInput
+        // to 1 even though no room type is actually chosen yet. That "ghost"
+        // passenger threw off getTotalPassengerCount() (used by the passenger-
+        // capacity dropdown added 2026-08-26) any time a selection got reset
+        // back to the placeholder. No room type selected = no passengers yet.
+        if (!selectedOption.value) {
+            passengerInput.value = '';
+            const inputEvent = new Event('input', { bubbles: true });
+            passengerInput.dispatchEvent(inputEvent);
+            return;
+        }
+
         // Extract room type from option value
         const roomType = selectedOption.value.split('_').slice(1).join('_');
         // console.log("Room type from option:", roomType);
@@ -1079,6 +1140,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 calculateSubtotal();
                 generatePassengerFields();
             }
+            updatePassengerCapacityUI(false);
         }
     });
 
@@ -1145,7 +1207,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         passengerContainer.innerHTML = "";
-        passengerContainer.innerHTML = "<h4>Passenger Details</h4>";
+        passengerContainer.innerHTML = "<h4>Passenger Details</h4>" + atgOver18NoteHtml();
 
         // console.log("Generating fields for", passengers, "passengers");
 
@@ -1165,6 +1227,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 <div class="jet-form-col">
                     <label>Last Name *</label>
                     <input type="text" name="passenger_last_name_${i}" required>
+                </div>
+                <div class="jet-form-col">
+                    <label>Date of Birth *</label>
+                    <input type="text" name="passenger_dob_${i}" class="atg-dob-input" inputmode="numeric" placeholder="dd-mm-yyyy" maxlength="10" required>
                 </div>
             `;
 
@@ -1235,6 +1301,16 @@ document.addEventListener("DOMContentLoaded", function () {
         return isEscorted ? 500 : 200;
     }
 
+    // Escorted-tours-only reminder shown under "Passenger Details" (both the
+    // primary room and any additional rooms) - independent tours don't get this,
+    // since the room/passenger structure is shared by both tour types via the
+    // same JetFormBuilder form.
+    function atgOver18NoteHtml() {
+        const data = window.atg_tour_data || {};
+        if (!data.is_escorted) return '';
+        return '<p class="atg-over-18-note">All passengers should be over 18.</p>';
+    }
+
     function getPromoSettings() {
         const data = window.atg_tour_data || {};
 
@@ -1269,6 +1345,205 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
         return count;
+    }
+
+    // ================= PASSENGER COUNT / ROOM CAPACITY ===================
+    // A "Number of Passengers" dropdown (1-20) sits next to Departure Date. It's
+    // never shown on the summary/thank-you page or emails and isn't a real
+    // JetFormBuilder field (no `name` attribute, so it's excluded from FormData) -
+    // it exists purely client-side, to cap how many people can be booked into
+    // rooms: "Add Room" is disabled once every seat is allocated, each room's
+    // type dropdown only offers room types that actually fit in whatever space
+    // is left for that specific room (e.g. only Single Occupancy if there's
+    // exactly 1 spot left), and the "Next" button on whichever step contains
+    // the room selection UI is blocked (with a visible message, same pattern
+    // as the existing required-field check) until the rooms add up to exactly
+    // the chosen number - see "Passenger and Room Selection step" further down.
+    function getDesiredPassengerCount() {
+        const select = document.querySelector('.atg-passenger-count-select');
+        return select ? (parseInt(select.value) || 0) : 0;
+    }
+
+    // Disable/enable a single room's type options based on how many seats are
+    // actually left for THAT room once every other room's current picks are
+    // accounted for (its own current pick is added back so choosing "Twin Room"
+    // doesn't shrink its own available choices).
+    function updateRoomSelectOptionsForCapacity(roomSelect, ownCount, desiredTotal, assignedTotal) {
+        const remainingForThisRoom = desiredTotal > 0
+            ? (desiredTotal - assignedTotal + ownCount)
+            : Infinity; // no passenger count chosen yet - don't restrict
+
+        let selectionWasCleared = false;
+
+        Array.from(roomSelect.options).forEach(function(opt) {
+            if (!opt.value) return; // "Select Room" placeholder
+            const limits = getPassengerLimits(opt.dataset.roomType || '');
+            const fits = limits.max <= remainingForThisRoom;
+            opt.disabled = !fits;
+            opt.hidden = !fits;
+
+            if (!fits && opt.selected) {
+                selectionWasCleared = true;
+            }
+        });
+
+        if (selectionWasCleared) {
+            roomSelect.selectedIndex = 0;
+            roomSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    // Shows/updates the little status line under the Add/Remove Room buttons -
+    // e.g. "2 of 4 passengers allocated" - turning red once the customer tries
+    // to move on without matching the chosen passenger count exactly.
+    function renderPassengerCapacityStatus(desiredTotal, assignedTotal, forceError) {
+        const buttonContainer = document.querySelector('.additional-room-buttons');
+        if (!buttonContainer) return;
+
+        // Inserted as a *sibling* of buttonContainer below, so it must be looked
+        // up the same way - searching buttonContainer's own descendants (as this
+        // used to) never finds it, so a new one got created (and appended) on
+        // every single recompute instead of the same one being reused/updated.
+        let status = buttonContainer.parentNode.querySelector(':scope > .atg-capacity-status');
+        if (!status) {
+            status = document.createElement('div');
+            status.className = 'atg-capacity-status';
+            buttonContainer.parentNode.insertBefore(status, buttonContainer.nextSibling);
+        }
+
+        if (desiredTotal <= 0) {
+            status.textContent = '';
+            status.classList.remove('atg-capacity-status--error');
+            return;
+        }
+
+        const mismatched = assignedTotal !== desiredTotal;
+        status.textContent = assignedTotal + ' of ' + desiredTotal + ' passenger' + (desiredTotal === 1 ? '' : 's') + ' allocated to rooms';
+        status.classList.toggle('atg-capacity-status--error', mismatched && !!forceError);
+    }
+
+    // Central recompute, called whenever passenger count, room selections, or
+    // the set of rooms itself changes. Clearing an invalid room selection below
+    // dispatches a synthetic 'change' event, which other listeners route right
+    // back into this same function - a reentrancy guard keeps that from ever
+    // recursing (each dispatched 'change' still runs its own listeners/updates,
+    // just not a nested nested pass of this whole recompute).
+    let atgUpdatingPassengerCapacity = false;
+    function updatePassengerCapacityUI(forceError) {
+        // Called from several generic hooks (room-select change, updateTotalCalculation(),
+        // Add Room/Remove Room) that fire on every form using this room/passenger
+        // UI. Both 31190 and 31192 build the "Number of Passengers" dropdown
+        // (as of 2026-08-26), but this stays as a defensive bail-out for any
+        // other form reusing this room/passenger UI without it - without this,
+        // getDesiredPassengerCount() would read 0 and canAdd = desiredTotal > 0
+        // && ... below would still run and permanently disable that form's own
+        // "Add Room" button.
+        if (!document.querySelector('.atg-passenger-count-select')) return;
+
+        if (atgUpdatingPassengerCapacity) return;
+        atgUpdatingPassengerCapacity = true;
+        try {
+            const desiredTotal = getDesiredPassengerCount();
+            const assignedTotal = getTotalPassengerCount();
+
+            document.querySelectorAll('select[name="select_room"], select[name^="select_room_"]').forEach(function(sel) {
+                const match = sel.name.match(/^select_room(?:_(\d+))?$/);
+                const suffix = match && match[1] ? '_' + match[1] : '';
+                const ownInput = document.querySelector('input[name="number_of_passenger' + suffix + '"]');
+                const ownCount = ownInput ? (parseInt(ownInput.value) || 0) : 0;
+                updateRoomSelectOptionsForCapacity(sel, ownCount, desiredTotal, assignedTotal);
+            });
+
+            // A selection may have just been auto-cleared above (no longer fit) -
+            // recompute the assigned total before updating the Add Room button/status.
+            const finalAssignedTotal = getTotalPassengerCount();
+            const remaining = desiredTotal - finalAssignedTotal;
+
+            const addBtn = document.querySelector('.add-room-btn');
+            if (addBtn) {
+                const canAdd = desiredTotal > 0 && remaining > 0;
+                addBtn.disabled = !canAdd;
+                addBtn.classList.toggle('atg-disabled', !canAdd);
+            }
+
+            renderPassengerCapacityStatus(desiredTotal, finalAssignedTotal, forceError);
+        } finally {
+            atgUpdatingPassengerCapacity = false;
+        }
+    }
+
+    // Builds the dropdown itself and places it in a side-by-side row with the
+    // Departure Date field. Runs alongside addAdditionalRoomButton()/
+    // groupRoomDetailsSection() (same MutationObserver-driven retry pattern),
+    // since the popup content (and Departure Date field) can take a moment to
+    // appear/re-appear.
+    async function setupPassengerCountDropdown() {
+        try {
+            // Originally this dropdown/feature was scoped to 31190 only, since
+            // on that form Departure Date and Select Room/Add Room all live on
+            // the SAME step, so blocking "Next" from that step based on room
+            // allocation made sense. 31192 (customise-itinerary) puts Departure
+            // Date on an earlier "Holiday Details" step and Select Room/Add Room
+            // on its own later "Passenger and Room Selection" step - the client
+            // now wants the dropdown there too (2026-08-26), so it's built on
+            // both forms. The Next-button capacity check further down (search
+            // "Passenger and Room Selection step") is gated on the currentPage
+            // actually containing the room-selection UI, not on wherever this
+            // dropdown itself renders, so it correctly does nothing on 31192's
+            // Holiday Details step and only kicks in on its Room Selection step.
+            const dateInput = await waitForElement('#_departure, input[name="_departure"]');
+
+            if (document.querySelector('.atg-passenger-count-field')) return; // already built
+
+            const dateRow = dateInput.closest('.jet-form-builder-row') || dateInput.parentNode;
+            const dateWrapper = dateRow.closest('.jet-sm-gb-wrapper') || dateRow;
+
+            const flexRow = document.createElement('div');
+            flexRow.className = 'atg-departure-passengers-row';
+            dateWrapper.parentNode.insertBefore(flexRow, dateWrapper);
+            flexRow.appendChild(dateWrapper);
+
+            const field = document.createElement('div');
+            field.className = 'atg-passenger-count-field';
+
+            // Reuse JetFormBuilder's own label markup/class (a <div>, not a
+            // <label> element) and the date-select field class - same classes
+            // the Departure Date field next to it uses - so this matches its
+            // font, spacing, border and height exactly instead of falling back
+            // to browser/JFB-core defaults that don't quite line up.
+            const label = document.createElement('div');
+            label.className = 'jet-form-builder__label';
+            label.textContent = 'Number of Passengers *';
+            field.appendChild(label);
+
+            const select = document.createElement('select');
+            select.className = 'jet-form-builder__field date-select atg-passenger-count-select';
+
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select';
+            select.appendChild(placeholder);
+
+            for (let i = 1; i <= 20; i++) {
+                const opt = document.createElement('option');
+                opt.value = String(i);
+                opt.textContent = String(i);
+                select.appendChild(opt);
+            }
+
+            select.addEventListener('change', function() {
+                updatePassengerCapacityUI(false);
+            });
+
+            field.appendChild(select);
+            flexRow.appendChild(field);
+
+            updatePassengerCapacityUI(false);
+        } catch (e) {
+            // Departure date field not found (yet) - the retry loop that calls
+            // this alongside addAdditionalRoomButton()/groupRoomDetailsSection()
+            // will pick it up once it appears.
+        }
     }
 
     function calculateFixedDeposit(isPromoActive) {
@@ -1335,9 +1610,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 const title = section.querySelector(`[name="passenger_title_${i}"]`)?.value || "";
                 const firstName = section.querySelector(`[name="passenger_first_name_${i}"]`)?.value || "";
                 const lastName = section.querySelector(`[name="passenger_last_name_${i}"]`)?.value || "";
+                const dob = section.querySelector(`[name="passenger_dob_${i}"]`)?.value || "";
+                const dobSuffix = dob ? ` (DOB: ${dob})` : "";
 
-                if(i > 1) lines.push(` & Passenger ${i}: ${title} ${firstName} ${lastName}`);
-                else lines.push(`Passenger ${i}: ${title} ${firstName} ${lastName}`);
+                if(i > 1) lines.push(` & Passenger ${i}: ${title} ${firstName} ${lastName}${dobSuffix}`);
+                else lines.push(`Passenger ${i}: ${title} ${firstName} ${lastName}${dobSuffix}`);
             });
 
             // Also capture passenger data from additional rooms
@@ -1354,8 +1631,10 @@ document.addEventListener("DOMContentLoaded", function () {
                         const title = section.querySelector(`[name^="passenger_title_${roomNum}_"]`)?.value || "";
                         const firstName = section.querySelector(`[name^="passenger_first_name_${roomNum}_"]`)?.value || "";
                         const lastName = section.querySelector(`[name^="passenger_last_name_${roomNum}_"]`)?.value || "";
+                        const dob = section.querySelector(`[name^="passenger_dob_${roomNum}_"]`)?.value || "";
+                        const dobSuffix = dob ? ` (DOB: ${dob})` : "";
 
-                        lines.push(` + Additional Room ${roomNum} - Passenger ${i}: ${title} ${firstName} ${lastName}`);
+                        lines.push(` + Additional Room ${roomNum} - Passenger ${i}: ${title} ${firstName} ${lastName}${dobSuffix}`);
                     });
                 }
             });
@@ -1423,14 +1702,45 @@ document.addEventListener("DOMContentLoaded", function () {
                     if (currentPage) {
                         const requiredFields = currentPage.querySelectorAll("[required]");
                         requiredFields.forEach(field => {
-                            if (!field.value.trim()) {
+                            const isInvalidDob = field.matches('.atg-dob-input') && field.value.trim() && !atgIsValidDOB(field.value);
+
+                            if (!field.value.trim() || isInvalidDob) {
                                 field.classList.add("field-error");
+                                if (isInvalidDob) {
+                                    field.setCustomValidity('Please enter a valid date of birth (dd-mm-yyyy)');
+                                    field.style.borderColor = 'red';
+                                }
                                 isValid = false;
                             }
                             else {
                                 field.classList.remove("field-error");
+                                if (field.matches('.atg-dob-input')) {
+                                    field.setCustomValidity('');
+                                    field.style.borderColor = '';
+                                }
                             }
                         });
+
+                        // Passenger and Room Selection step: block Next until the
+                        // rooms add up to exactly the chosen "Number of Passengers".
+                        //
+                        // Gated on the room-selection UI (select_room/Add Room)
+                        // being on the CURRENT page, not on the passenger-count
+                        // dropdown's presence - on 31190 both live on the same
+                        // step so either check would agree, but on 31192 the
+                        // passenger-count dropdown is built on an earlier
+                        // "Holiday Details" step (2026-08-26) while Select
+                        // Room/Add Room is its own later step. Checking for the
+                        // dropdown here would incorrectly block Next straight
+                        // after Holiday Details, before any rooms exist yet.
+                        if (currentPage.querySelector('select[name="select_room"], .additional-room-buttons') && document.querySelector('.atg-passenger-count-select')) {
+                            const desiredTotal = getDesiredPassengerCount();
+                            const assignedTotal = getTotalPassengerCount();
+                            if (desiredTotal <= 0 || assignedTotal !== desiredTotal) {
+                                isValid = false;
+                            }
+                            renderPassengerCapacityStatus(desiredTotal, assignedTotal, true);
+                        }
                     }
                     if (!isValid) {
                         e.stopImmediatePropagation();
@@ -1532,7 +1842,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 tomorrow.setDate(tomorrow.getDate() + 1);
 
                 const instance = flatpickr(expectedDepartureInput, {
-                    dateFormat: "d/m/Y",
+                    dateFormat: "d-m-Y", // hardcoded, not locale-dependent (2026-08-26)
                     minDate: tomorrow,
                     disableMobile: true,
                     allowInput: false,
@@ -1576,7 +1886,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 tomorrow.setDate(tomorrow.getDate() + 1);
 
                 const instance = flatpickr(expectedDepartureInput, {
-                    dateFormat: "d/m/Y",
+                    dateFormat: "d-m-Y", // hardcoded, not locale-dependent (2026-08-26)
                     minDate: tomorrow,
                     disableMobile: true,
                     allowInput: false,
@@ -1680,6 +1990,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
             // Insert button container at the beginning of the additional fields
             container.insertBefore(buttonContainer, container.firstChild);
+
+            updatePassengerCapacityUI(false);
 
             // console.log("Additional room buttons added");
         } catch (e) {
@@ -1982,7 +2294,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         
         passengerContainer.innerHTML = "";
-        passengerContainer.innerHTML = `<h4>Passenger Details</h4>`;
+        passengerContainer.innerHTML = `<h4>Passenger Details</h4>` + atgOver18NoteHtml();
         
         // console.log("Generating fields for", passengers, "passengers in room", roomIndex);
         
@@ -2003,11 +2315,15 @@ document.addEventListener("DOMContentLoaded", function () {
                     <label>Last Name *</label>
                     <input type="text" name="passenger_last_name_${roomIndex}_${i}" required>
                 </div>
+                <div class="jet-form-col">
+                    <label>Date of Birth *</label>
+                    <input type="text" name="passenger_dob_${roomIndex}_${i}" class="atg-dob-input" inputmode="numeric" placeholder="dd-mm-yyyy" maxlength="10" required>
+                </div>
             `;
-            
+
             passengerContainer.appendChild(passengerSection);
         }
-        
+
         // console.log("Passenger fields generated for room", roomIndex);
         
         if (window.updatePassengerDataText) window.updatePassengerDataText();
@@ -2139,6 +2455,8 @@ document.addEventListener("DOMContentLoaded", function () {
             const changeEvent = new Event('change', { bubbles: true });
             grandTotalInput.dispatchEvent(changeEvent);
         }
+
+        updatePassengerCapacityUI(false);
     }
 
     // Auto-populate room options if we have valid trip data
@@ -2169,10 +2487,12 @@ document.addEventListener("DOMContentLoaded", function () {
     // console.log("Initializing additional room button");
     addAdditionalRoomButton();
     groupRoomDetailsSection();
+    setupPassengerCountDropdown();
     const roomObserver = new MutationObserver(() => {
         // console.log("DOM mutation detected, checking for additional room button");
         addAdditionalRoomButton();
         groupRoomDetailsSection();
+        setupPassengerCountDropdown();
     });
     roomObserver.observe(document.body, { childList: true, subtree: true });
 
@@ -2457,10 +2777,12 @@ document.addEventListener("DOMContentLoaded", function () {
                     const titleInput = section.querySelector('input[name^="passenger_title"]');
                     const firstNameInput = section.querySelector('input[name^="passenger_first_name"]');
                     const lastNameInput = section.querySelector('input[name^="passenger_last_name"]');
+                    const dobInput = section.querySelector('input.atg-dob-input');
                     const title = titleInput ? titleInput.value : '';
                     const firstName = firstNameInput ? firstNameInput.value : '';
                     const lastName = lastNameInput ? lastNameInput.value : '';
-                    passengersHtml += `, ${title} ${firstName} ${lastName}`;
+                    const dob = dobInput ? dobInput.value : '';
+                    passengersHtml += `, ${title} ${firstName} ${lastName}${dob ? ' (DOB: ' + dob + ')' : ''}`;
                 });
 
                 // Determine room type. Upgrade variants must be checked first - see
@@ -2648,6 +2970,58 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
     });
+
+    // ================= DATE OF BIRTH AUTO-FORMAT ===================
+    // Per-passenger DOB field (generatePassengerFields()/generateAdditionalPassengerFields())
+    // is a plain text input rather than a date picker - typing digits is faster
+    // than clicking through a calendar for a birth year decades back. Strips
+    // everything but digits as the customer types and re-inserts the dashes,
+    // so "01011990" becomes "01-01-1990" live, capped at 8 digits (ddmmyyyy).
+    // Delegated on document (not attached per-field at creation time) since
+    // these inputs are created/recreated dynamically by the functions above.
+    document.addEventListener('input', function(e) {
+        const target = e.target;
+        if (!target.matches('.atg-dob-input')) return;
+
+        const digits = target.value.replace(/\D/g, '').slice(0, 8);
+        let formatted = digits.slice(0, 2);
+        if (digits.length > 2) formatted += '-' + digits.slice(2, 4);
+        if (digits.length > 4) formatted += '-' + digits.slice(4, 8);
+        target.value = formatted;
+
+        // Only flag an error once a full 8 digits have been typed - a
+        // half-typed date (e.g. "01-01-19") shouldn't show red while the
+        // customer is still mid-entry.
+        if (digits.length < 8) {
+            target.setCustomValidity('');
+            target.style.borderColor = '';
+            return;
+        }
+
+        if (!atgIsValidDOB(target.value)) {
+            target.setCustomValidity('Please enter a valid date of birth (dd-mm-yyyy)');
+            target.style.borderColor = 'red';
+        } else {
+            target.setCustomValidity('');
+            target.style.borderColor = '';
+        }
+    });
+
+    // Catches paste (no 'input' char-by-char build-up) and simply leaving a
+    // still-invalid field, e.g. tabbing away after typing a real but
+    // impossible date like 31-02-1990.
+    document.addEventListener('blur', function(e) {
+        const target = e.target;
+        if (!target.matches('.atg-dob-input')) return;
+
+        if (target.value && !atgIsValidDOB(target.value)) {
+            target.setCustomValidity('Please enter a valid date of birth (dd-mm-yyyy)');
+            target.style.borderColor = 'red';
+        } else {
+            target.setCustomValidity('');
+            target.style.borderColor = '';
+        }
+    }, true); // 'blur' doesn't bubble - capture phase needed for delegation
 
     // Prevent invalid characters in phone field
     document.addEventListener('keydown', function(e) {
