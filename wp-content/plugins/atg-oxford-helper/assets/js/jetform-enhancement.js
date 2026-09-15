@@ -41,6 +41,78 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// Escorted-only: hide the redundant "The lead passenger should be over 18"
+// paragraph on the Lead Name Details step (form 31190, shared by both
+// Independent and Escorted tour types via the same JetFormBuilder form). The
+// escorted flow already shows a similar reminder under Passenger Details
+// (see atgOver18NoteHtml() further down, gated the same way on
+// window.atg_tour_data.is_escorted), so this one is redundant there - client
+// request, 2026-09. Independent tours don't get that earlier note, so they
+// keep this paragraph as-is. Left as a real (un-deleted) block in the
+// JetFormBuilder form itself so independent bookings are unaffected; this
+// just hides it client-side when the current tour is escorted.
+document.addEventListener('DOMContentLoaded', function() {
+    if (!(window.atg_tour_data || {}).is_escorted) return;
+
+    document.querySelectorAll('.jet-form-builder-page p').forEach(function(p) {
+        if (p.textContent.trim() === 'The lead passenger should be over 18') {
+            p.style.display = 'none';
+        }
+    });
+});
+
+// Custom "please check this box" validation message for the 3 required
+// acceptance checkboxes (Booking Conditions / Privacy Policy / Travel
+// Insurance) - client request, 2026-09. These are plain HTML5 "required"
+// checkboxes with no field-level tooltip/help-text setting in the form
+// builder, so the "tooltip" the client sees is really the browser's native
+// validation bubble; setCustomValidity() is how that message gets replaced
+// (same idiom already used for email/phone/DOB fields elsewhere in this file).
+//
+// Delegated on document (not attached per-checkbox at DOMContentLoaded) -
+// this booking form lives inside an Elementor popup that isn't injected into
+// the DOM until the customer opens it, which is well after DOMContentLoaded
+// has already fired, so a one-time querySelectorAll() at that point finds
+// nothing (same reasoning as the DOB/email/phone delegation above). 'invalid'
+// doesn't bubble, so the capture phase is required to catch it via delegation.
+const ATG_ACCEPTANCE_CHECKBOX_NAMES = [
+    'accept_atg_booking_conditions',
+    'accept_atg_privacy_policy',
+    'travel_insurance'
+];
+
+document.addEventListener('invalid', function(e) {
+    const target = e.target;
+    if (target.tagName === 'INPUT' && target.type === 'checkbox' && ATG_ACCEPTANCE_CHECKBOX_NAMES.indexOf(target.name) !== -1) {
+        target.setCustomValidity('Please check this box to proceed');
+    }
+}, true);
+
+document.addEventListener('change', function(e) {
+    const target = e.target;
+    if (target.tagName === 'INPUT' && target.type === 'checkbox' && ATG_ACCEPTANCE_CHECKBOX_NAMES.indexOf(target.name) !== -1) {
+        target.setCustomValidity('');
+    }
+});
+
+// Submit button label: the block's own label text is "Send Enquiry" (shared
+// by every tour type since forms 31190/31192 are each a single form post),
+// but it should read "Pay Deposit" everywhere except the customise-itinerary
+// form (31192), which doesn't take payment - client request, 2026-09.
+// Overridden here (like the review page title above) rather than editing the
+// block, so this ships with the plugin files with no separate WP admin edit.
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form.jet-form-builder');
+    if (!form || form.dataset.formId === '31192') {
+        return;
+    }
+
+    const submitBtn = form.querySelector('.jet-form-builder__submit');
+    if (submitBtn && submitBtn.textContent.replace(/\s+/g, ' ').trim() === 'Send Enquiry') {
+        submitBtn.textContent = 'Pay Deposit';
+    }
+});
+
 // Format any date-ish string as dd/mm/yyyy for display. Handles "2025-09-18",
 // "2025-09-18T00:00", and already-formatted "18/09/2025" (passthrough).
 // Used everywhere a date is shown to the user, so the site has one consistent format.
@@ -259,19 +331,33 @@ window.atgFormatCurrency = function(amount) {
     
     // Process blocked dates from blocked_dates field
     function processBlockedDatesField() {
+        // Prefer the server-computed closure dates (2026-09) - read directly
+        // from the "Route Closure Dates" repeater postmeta in frontend-data.php
+        // and localized as window.atg_tour_data.server_blocked_dates. The
+        // "blocked_dates" hidden field's JetFormBuilder dynamic-value preset
+        // (parsed below as a fallback) was found to resolve empty for this
+        // repeater - likely a JetFormBuilder/JetEngine quirk around the
+        // repeater's conditional logic - so closure dates stopped being
+        // enforced even though they're filled in correctly in wp-admin.
+        const serverBlockedDates = (window.atg_tour_data || {}).server_blocked_dates;
+        if (Array.isArray(serverBlockedDates) && serverBlockedDates.length > 0) {
+            window.jetformDatepickerConfig.blockedDates = serverBlockedDates;
+            return true;
+        }
+
         const blockedDatesField = document.querySelector('input[name="blocked_dates"][data-dynamic-value]');
         if (!blockedDatesField) {
             // console.log("No blocked_dates field found");
             return false;
         }
-        
+
         const rawData = blockedDatesField.getAttribute("data-dynamic-value");
-        
+
         if (!rawData) {
             // console.log("No data-dynamic-value found");
             return false;
         }
-        
+
         let parsedData;
         try {
             const decoded = rawData.replace(/&quot;/g, '"');
@@ -287,11 +373,11 @@ window.atgFormatCurrency = function(amount) {
             // console.log("No valid blocked dates found");
             return false;
         }
-        
+
         // Extract blocked date ranges
         window.jetformDatepickerConfig.blockedDates = rule.to_set;
 
-        
+
         return true;
     }
     
@@ -359,14 +445,23 @@ window.atgFormatCurrency = function(amount) {
                 [startDate, endDate] = [endDate, startDate];
             }
             
-            // Generate all dates in the range
+            // Generate all dates in the range. Pushed as actual Date objects,
+            // not "YYYY-MM-DD" strings (2026-09 fix): Flatpickr's "disable"
+            // option re-parses string entries using the datepicker's
+            // configured display dateFormat ("d-m-Y" here - see
+            // initFlatpickrForElement), so ISO-format strings silently failed
+            // to parse and collapsed every disabled day down to the same
+            // fallback date. This went unnoticed until now because
+            // blocked_dates only just started resolving real data (was
+            // broken/empty before). Date objects sidestep the format parsing
+            // entirely.
             const currentDate = new Date(startDate);
             while (currentDate <= endDate) {
-                disabledDates.push(currentDate.toISOString().split('T')[0]);
+                disabledDates.push(new Date(currentDate));
                 currentDate.setDate(currentDate.getDate() + 1);
             }
         });
-        
+
         // Remove duplicates
         return [...new Set(disabledDates)];
     }
@@ -423,13 +518,26 @@ window.atgFormatCurrency = function(amount) {
         defaultOption.selected = true;
         select.appendChild(defaultOption);
         
-        // Add options for each date range
-        window.jetformDatepickerConfig.dateRanges.forEach(range => {
-            const option = document.createElement('option');
-            option.value = range.start_date.split('T')[0]; // Use the start date as value
-            option.textContent = formatDateRange(range.start_date, range.end_date);
-            select.appendChild(option);
-        });
+        // Add options for each date range - future departures only (2026-09 fix).
+        // This dropdown (fixed date ranges from the departure_escorted field) is
+        // what escorted tours use in place of independent tours' free-pick
+        // Flatpickr calendar, and dateRanges here is unfiltered raw data, so past
+        // trip dates were still showing as selectable. Compare against today at
+        // midnight so a trip departing today still shows.
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+
+        window.jetformDatepickerConfig.dateRanges
+            .filter(range => {
+                const startDate = new Date(range.start_date.split('T')[0] + 'T00:00:00');
+                return startDate >= todayMidnight;
+            })
+            .forEach(range => {
+                const option = document.createElement('option');
+                option.value = range.start_date.split('T')[0]; // Use the start date as value
+                option.textContent = formatDateRange(range.start_date, range.end_date);
+                select.appendChild(option);
+            });
         
         // Set the value if already selected
         if (input.value) {
@@ -506,8 +614,10 @@ window.atgFormatCurrency = function(amount) {
                     const departureInputs = document.querySelectorAll('input[name="_departure"]');
                     const hasDateRanges = window.jetformDatepickerConfig.dateRanges.length > 0;
                     const hasBlockedDates = window.jetformDatepickerConfig.blockedDates.length > 0;
-                    
-                    if (departureInputs.length > 0 && (hasDateRanges || hasBlockedDates) && !window.jetformDatepickerConfig.datepickerCreated) {
+                    const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
+                        && window.atg_tour_data.open_months.length > 0;
+
+                    if (departureInputs.length > 0 && (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) && !window.jetformDatepickerConfig.datepickerCreated) {
                         shouldInitialize = true;
                     }
                 }
@@ -533,9 +643,11 @@ window.atgFormatCurrency = function(amount) {
             const departureInputs = document.querySelectorAll('input[name="_departure"]');
             const hasDateRanges = window.jetformDatepickerConfig.dateRanges.length > 0;
             const hasBlockedDates = window.jetformDatepickerConfig.blockedDates.length > 0;
-            
-            if (departureInputs.length > 0 && (hasDateRanges || hasBlockedDates) && !window.jetformDatepickerConfig.datepickerCreated) {
-                
+            const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
+                && window.atg_tour_data.open_months.length > 0;
+
+            if (departureInputs.length > 0 && (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) && !window.jetformDatepickerConfig.datepickerCreated) {
+
                 createCustomDatePicker();
                 window.jetformDatepickerConfig.datepickerCreated = true;
                 
@@ -564,8 +676,17 @@ window.atgFormatCurrency = function(amount) {
             hasBlockedDates = processBlockedDatesField();
         }
         
-        if (hasDateRanges || hasBlockedDates) {
-            
+        // Also activate the custom picker purely for the open-season month filter
+        // (2026-09) even when blocked_dates/departure_escorted have no usable data -
+        // e.g. the blocked_dates dynamic-value tag can resolve to an empty to_set for
+        // a tour whose Route Closure Dates repeater is filled in correctly in wp-admin
+        // (a separate, pre-existing issue with that dynamic tag), which would otherwise
+        // silently skip the whole custom-picker path and leave the season filter inert.
+        const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
+            && window.atg_tour_data.open_months.length > 0;
+
+        if (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) {
+
             initializeDatepickerWhenReady();
         } else {
             // console.log("No valid data found in fields");
@@ -589,8 +710,11 @@ window.atgFormatCurrency = function(amount) {
                         hasBlockedDates = processBlockedDatesField();
                     }
                     
-                    if (hasDateRanges || hasBlockedDates) {
-                       
+                    const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
+                        && window.atg_tour_data.open_months.length > 0;
+
+                    if (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) {
+
                         initializeDatepickerWhenReady();
                         fieldObserver.disconnect();
                     }
@@ -630,7 +754,22 @@ window.atgFormatCurrency = function(amount) {
         let disabledDates = [];
         if (window.jetformDatepickerConfig.blockedDates.length > 0) {
             disabledDates = generateBlockedDatesForFlatpickr(window.jetformDatepickerConfig.blockedDates);
-            
+
+        }
+
+        // Restrict to the tour's actual open season (2026-09, client request).
+        // Uses the existing "Route Open" months field (window.atg_tour_data.open_months,
+        // set in frontend-data.php from post meta "month" - already filled in per tour,
+        // no new data entry needed) on top of the existing day-level Route Closure Dates
+        // above. Flatpickr's disable array accepts a function alongside date strings, so
+        // this rejects any date whose month isn't checked as open. An empty open_months
+        // list means the field isn't set for this tour - treat that as "no restriction"
+        // rather than accidentally blocking every date.
+        const openMonths = (window.atg_tour_data || {}).open_months;
+        if (Array.isArray(openMonths) && openMonths.length > 0) {
+            disabledDates.push(function(date) {
+                return !openMonths.includes(date.getMonth() + 1);
+            });
         }
 
         const flatpickrInstance = flatpickr(fakeInput, {
@@ -638,35 +777,57 @@ window.atgFormatCurrency = function(amount) {
             disableMobile: true,
             allowInput: false,
             clickOpens: true,
-            defaultDate: originalInput.value || null,
+            defaultDate: originalInput.value ? atgParseFlexibleDate(originalInput.value) : null,
             disable: disabledDates,
             minDate: "today",
             onReady: function(selectedDates, dateStr, instance) {
-                
-                
-                // Set initial value if exists
+
+
+                // Set initial value if exists. originalInput.value is stored as
+                // ISO (yyyy-mm-dd, see onChange below) - the fake display input
+                // needs the dd-mm-yyyy form instead, same as dateStr elsewhere.
                 if (originalInput.value) {
-                    fakeInput.value = originalInput.value;
+                    const existing = atgParseFlexibleDate(originalInput.value);
+                    if (existing) {
+                        fakeInput.value = instance.formatDate(existing, "d-m-Y");
+                    }
                 }
-                
+
                 // Store instance for later access
                 window.jetformDatepickerConfig.flatpickrInstances.set(instanceId, instance);
-                
+
                 // OPEN IMMEDIATELY on first click
                 setTimeout(() => {
                     instance.open();
                 }, 50);
             },
             onChange: function(selectedDates, dateStr, instance) {
-               
+
                 if (selectedDates.length > 0) {
-                    // Update the hidden input value
-                    originalInput.value = dateStr;
+                    // originalInput is a real <input type="date">, which only
+                    // accepts strict ISO yyyy-mm-dd - any other format (including
+                    // dateStr's dd-mm-yyyy) is silently rejected by the browser,
+                    // leaving the field empty. That was blocking the "Next"
+                    // button on step 1 for every real booking, since _departure
+                    // is required (found 2026-09-11, re-verified 2026-09-14).
+                    // fakeInput keeps the dd-mm-yyyy display the client sees.
+                    const d = selectedDates[0];
+                    const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                    originalInput.value = iso;
                     fakeInput.value = dateStr;
-                    
-                    // Trigger change event for form validation
-                    const event = new Event('change', { bubbles: true });
-                    originalInput.dispatchEvent(event);
+
+                    // JetFormBuilder's own field-tracking (separate from native
+                    // HTML5 constraint validation, and separate from the ISO fix
+                    // above) only marks this field "filled" - and unblocks the
+                    // step's Next button - once it sees an 'input' and a 'blur'
+                    // on the real field, not just 'change'. Without these two,
+                    // Next stayed stuck on step 1 even with a fully valid,
+                    // correctly-formatted date already in the field (found
+                    // 2026-09-14, same day as the ISO fix above but a distinct
+                    // second cause of the same "can't click Next" symptom).
+                    originalInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    originalInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    originalInput.dispatchEvent(new Event('blur', { bubbles: true }));
                 }
             },
             onOpen: function(selectedDates, dateStr, instance) {
@@ -1524,7 +1685,13 @@ document.addEventListener("DOMContentLoaded", function () {
             placeholder.textContent = 'Select';
             select.appendChild(placeholder);
 
-            for (let i = 1; i <= 20; i++) {
+            // Passenger caps (2026-09, client request): Escorted tours max out at
+            // 8, Footloose/Independent tours (both the fixed-itinerary form and
+            // the customise-your-own-itinerary form) max out at 10.
+            const isEscortedTour = !!(window.atg_tour_data || {}).is_escorted;
+            const maxPassengers = isEscortedTour ? 8 : 10;
+
+            for (let i = 1; i <= maxPassengers; i++) {
                 const opt = document.createElement('option');
                 opt.value = String(i);
                 opt.textContent = String(i);
@@ -1979,10 +2146,18 @@ document.addEventListener("DOMContentLoaded", function () {
             addBtn.className = "add-room-btn";
             addBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M13.7 2.3C12.1.8 10.1 0 8 0S3.9.8 2.3 2.3 0 5.9 0 8s.8 4.1 2.3 5.7S5.9 16 8 16s4.1-.8 5.7-2.3S16 10.1 16 8s-.8-4.1-2.3-5.7zM8 14.8c-3.7 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3.1 6.8-6.8 6.8zm.6-7.4h2.8v1.2H8.6v2.8H7.4V8.6H4.6V7.4h2.8V4.6h1.2v2.8z"></path></svg><span class="add-room-btn__label">Add Room</span>`;
 
-            // Remove Room button (initially hidden)
+            // Remove Room button - hidden until there are 2+ rooms (client
+            // request, 2026-09-14: clicking it with only 1 room selected just
+            // made that room disappear with no way to re-add it via the form,
+            // instead of gracefully declining). The comment above already said
+            // "(initially hidden)" but nothing actually set that until now -
+            // display is set to "none" below and only ever flipped to "flex"
+            // once an additional room exists, via the click handlers further
+            // down.
             const removeBtn = document.createElement("button");
             removeBtn.type = "button";
             removeBtn.className = "remove-room-btn";
+            removeBtn.style.display = "none";
             removeBtn.innerHTML = `<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display: block; height: auto; max-width: 100%;height: 18px;"><path d="M8 16c-2.1 0-4.1-.8-5.7-2.3S0 10.1 0 8s.8-4.1 2.3-5.7S5.9 0 8 0s4.1.8 5.7 2.3S16 5.9 16 8s-.8 4.1-2.3 5.7S10.1 16 8 16zM8 1.2c-3.7 0-6.8 3-6.8 6.8s3 6.8 6.8 6.8 6.8-3 6.8-6.8S11.7 1.2 8 1.2zm3.4 6.2H4.6v1.2h6.9V7.4z"></path></svg><span class="remove-room-btn__label">Remove Room</span>`;
 
             buttonContainer.appendChild(addBtn);
@@ -2711,11 +2886,73 @@ document.addEventListener("DOMContentLoaded", function () {
         reviewPage.insertBefore(title, reviewPage.firstChild);
     }
 
+    // ================= GATE "PAY DEPOSIT" ON REQUIRED CHECKBOXES ===================
+    // The form has novalidate set and JetFormBuilder doesn't show any error when a
+    // required field is missing on submit - clicking "Pay Deposit" with the Booking
+    // Conditions / Privacy Policy / Travel Insurance checkboxes unticked just flashes
+    // "Processing..." and silently reverts, leaving the customer with no idea why
+    // (found 2026-09-14). Disabling the button until all three are ticked catches
+    // this before submit is even attempted, instead of trying to make JetFormBuilder
+    // show an error message after the fact.
+    window.ATG_REQUIRED_CHECKBOX_NAMES = window.ATG_REQUIRED_CHECKBOX_NAMES || [
+        'accept_atg_booking_conditions',
+        'accept_atg_privacy_policy',
+        'travel_insurance'
+    ];
+
+    function ensureSubmitButtonGatedOnRequiredCheckboxes() {
+        const form = document.querySelector('form.jet-form-builder');
+        // Only the deposit-taking form (31190) has these checkboxes; the
+        // Customise form (31192) has neither them nor a "Pay Deposit" button.
+        if (!form || form.dataset.formId === '31192') {
+            return;
+        }
+
+        const submitBtn = form.querySelector('.jet-form-builder__submit');
+        if (!submitBtn) {
+            return;
+        }
+
+        const checkboxes = window.ATG_REQUIRED_CHECKBOX_NAMES
+            .map(function(name) {
+                return form.querySelector('input[type="checkbox"][name="' + name + '"]');
+            })
+            .filter(Boolean);
+
+        // Checkboxes live on the review step, which may not be in the DOM yet
+        // (or may already have been swapped for a "Processing..." submit) -
+        // don't touch the button in either case.
+        if (checkboxes.length === 0 || submitBtn.dataset.atgSubmitting === 'true') {
+            return;
+        }
+
+        const allChecked = checkboxes.every(function(cb) {
+            return cb.checked;
+        });
+
+        submitBtn.disabled = !allChecked;
+        submitBtn.style.opacity = allChecked ? '' : '0.5';
+        submitBtn.style.cursor = allChecked ? '' : 'not-allowed';
+    }
+
+    // Re-checked on every tick/untick of any of the three checkboxes. Delegated
+    // on document (not attached once at DOMContentLoaded) for the same reason
+    // as the checkbox tooltip fix above - this form lives inside an Elementor
+    // popup that isn't in the DOM until the customer opens it.
+    document.addEventListener('change', function(e) {
+        const target = e.target;
+        if (target.tagName === 'INPUT' && target.type === 'checkbox' &&
+            window.ATG_REQUIRED_CHECKBOX_NAMES.indexOf(target.name) !== -1) {
+            ensureSubmitButtonGatedOnRequiredCheckboxes();
+        }
+    });
+
     // ================= SUMMARY GENERATOR ===================
     function generateCompleteSummary() {
         // console.log("Generating complete summary");
 
         ensureReviewPageTitle();
+        ensureSubmitButtonGatedOnRequiredCheckboxes();
 
         const summaryContainer = document.querySelector('p.complete_summary');
         if (!summaryContainer) {
@@ -2752,6 +2989,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // Build room details HTML
         let roomsHtml = '';
+        // Sum of every room's Subtotal - feeds the "Booking total" line in the
+        // new "Total Holiday Cost" section below (client request, 2026-09).
+        let bookingTotal = 0;
         let i = 0;
         while (true) {
             let suffix = (i > 0) ? "_" + i : "";
@@ -2796,14 +3036,19 @@ document.addEventListener("DOMContentLoaded", function () {
                 else if (roomValue.includes("twin_room")) roomType = "Twin Room";
                 else if (roomValue.includes("single_occupancy")) roomType = "Single Occupancy (Double Room)";
 
+                // Passenger Details listed before Room Type (client request,
+                // 2026-09 - was Room Type first, "Passenger Names" last).
                 roomsHtml += `
                     <div class="summary-room-details-container">
+                        <div class="summary-rd-passenger-names"><strong>Passenger Details:</strong> ${passengersHtml.slice(2) || 'N/A'}</div>
                         <div class="summary-rd-room-type"><strong>Room Type:</strong> ${roomType}</div>
                         <div class="summary-rd-passengers"><strong>Passengers:</strong> ${values["number_of_passenger" + suffix]}</div>
                         ${isCustomizeForm ? '' : `<div class="summary-rd-subtotal"><strong>Subtotal:</strong> ${values["sub_total" + suffix]}</div>`}
-                        <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ${passengersHtml.slice(2) || 'N/A'}</div>
                     </div>
                 `;
+                if (!isCustomizeForm) {
+                    bookingTotal += parseFloat(String(values["sub_total" + suffix]).replace(/[^0-9.]/g, '')) || 0;
+                }
                 i++;
             } else {
                 break;
@@ -2883,17 +3128,38 @@ document.addEventListener("DOMContentLoaded", function () {
         const travelDatesText = travelDates.rangeText || 'N/A';
 
         // Deposit is only relevant to the fixed-itinerary form (31190) - the
-        // customise form (31192) doesn't take payment. "Deposit Due: £400
+        // customise form (31192) doesn't take payment. "Deposit due: £400
         // (£200 per passenger)" - the per-passenger bracket is only shown
         // when there's more than one passenger (a single passenger's deposit
         // is already the per-passenger rate, so repeating it is redundant).
-        let depositHtml = '';
+        // This used to render inline inside Holiday Details as "Deposit Due" -
+        // moved into its own "Total Holiday Cost" section below, after
+        // Additional Requests, alongside the booking total (client request,
+        // 2026-09).
+        let totalHolidayCostHtml = '';
         if (!isCustomizeForm && values['deposit']) {
             const totalPassengers = getTotalPassengerCount();
             const depositTotal = parseFloat(String(values['deposit']).replace(/[^0-9.]/g, '')) || 0;
             const perPassenger = totalPassengers > 0 ? depositTotal / totalPassengers : depositTotal;
-            depositHtml = `<div class="summary-deposit-due"><strong>Deposit Due:</strong> ${window.atgFormatCurrency(depositTotal)}${totalPassengers > 1 ? ' (' + window.atgFormatCurrency(perPassenger) + ' per passenger)' : ''}</div>`;
+            totalHolidayCostHtml = `
+            <div class="summary-total-holiday-cost">
+                <div class="summary-container">
+                    <div class="summary-title">Total Holiday Cost</div>
+                    <div class="summary-booking-total"><strong>Booking total:</strong> ${window.atgFormatCurrency(bookingTotal)}</div>
+                    <div class="summary-deposit-due"><strong>Deposit due:</strong> ${window.atgFormatCurrency(depositTotal)}${totalPassengers > 1 ? ' (' + window.atgFormatCurrency(perPassenger) + ' per passenger)' : ''}</div>
+                    <div class="summary-deposit-note">Your deposit is FULLY REFUNDABLE if we cannot arrange your holiday exactly as you wish.</div>
+                </div>
+            </div>
+            `;
         }
+
+        // "Trip Length" vs "Trip Option": the customise form (31192) shows the
+        // itinerary description list alongside this figure (itineraryListHtml,
+        // built above), so "Trip Option" reads better there since it's no longer
+        // just a duration - client request, 2026-09. The fixed-itinerary forms
+        // (31190, escorted or footloose direct-book) show this figure alone with
+        // no description, so they keep "Trip Length".
+        const tripLengthLabel = itineraryTripLength ? 'Trip Option' : 'Trip Length';
 
         const summaryHtml = `
             <div class="summary-wrapper">
@@ -2901,9 +3167,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     <div class="summary-container">
                         <div class="summary-title">Holiday Details</div>
                         <div class="summary-trip-selected"><strong>Trip Selected:</strong> ${atg_tour_data.page_name || 'N/A'}</div>
-                        <div class="summary-trip-length"><strong>Trip Length:</strong> ${tripLengthText}</div>
+                        <div class="summary-trip-length"><strong>${tripLengthLabel}:</strong> ${tripLengthText}</div>
                         <div class="summary-departure-date"><strong>Travel Dates:</strong> ${travelDatesText}</div>
-                        ${depositHtml}
                         ${itineraryListHtml}
                     </div>
                 </div>
@@ -2921,11 +3186,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
             <div class="summary-room-details">
                 <div class="summary-container">
-                    <div class="summary-title">Room Details</div>
+                    <div class="summary-title">Passenger and Room Details</div>
                     ${roomsHtml}
                 </div>
             </div>
             ${additionalRequestsHtml}
+            ${totalHolidayCostHtml}
         `;
 
         summaryContainer.innerHTML = summaryHtml;
@@ -3044,6 +3310,38 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
     });
+
+    // ================= PREVENT ENTER FROM SUBMITTING ON STEP 1 ===================
+    // Pressing Enter inside a field implicitly submits the nearest <form> using
+    // its default submit button - which, in this multi-page JetFormBuilder
+    // form, is the real "Pay Deposit" button that lives on step 3, even while
+    // only step 1/2 are visible (all pages share one <form>, other pages are
+    // just hidden via CSS, not removed from the DOM). That's a genuine,
+    // uncontrolled full-page submit/reload - client reported it sent them
+    // straight back to the main trip page after pressing Enter on step 1's
+    // Date of Birth field (found/fixed 2026-09-14). Scoped to only the FIRST
+    // .jet-form-builder-page so step 2's own Enter behaviour - showing a
+    // "please fill required fields" note and never navigating away, which the
+    // client confirmed is already correct - is left completely untouched.
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') {
+            return;
+        }
+        const target = e.target;
+        if (!target || target.tagName === 'TEXTAREA' || target.tagName === 'BUTTON' ||
+            target.type === 'submit' || target.type === 'button') {
+            return;
+        }
+        const page = target.closest('.jet-form-builder-page');
+        const form = target.closest('form.jet-form-builder');
+        if (!page || !form) {
+            return;
+        }
+        const allPages = form.querySelectorAll('.jet-form-builder-page');
+        if (allPages.length && allPages[0] === page) {
+            e.preventDefault();
+        }
+    }, true);
 
     // Close Action on Popup - Dont show "status" message again
     document.addEventListener('click', function(e) {

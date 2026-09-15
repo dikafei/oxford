@@ -224,8 +224,12 @@ div.dialog-widget-content{
 }
 
 .atg-review-page-title {
-    font-size: 22px;
-    font-weight: 700;
+    /* Match the (unstyled, inherited) size of the trip name text in the
+       Holiday Details box and drop the bold weight - client request, 2026-09.
+       16px matches .summary-title, which was deliberately sized to read
+       consistently with the rest of the summary's body text. */
+    font-size: 16px;
+    font-weight: 400;
     color: #2c3e50;
     margin: 0 0 16px;
 }
@@ -367,8 +371,19 @@ div.dialog-widget-content{
 }
 
 .summary-room-details,
-.summary-additional-requests {
+.summary-additional-requests,
+.summary-total-holiday-cost {
     margin-top: 20px;
+}
+
+/* "Your deposit is FULLY REFUNDABLE..." note inside the "Total Holiday Cost"
+   section (client request, 2026-09) - styled as a smaller, muted aside rather
+   than a regular data row like Booking total / Deposit due above it. */
+.summary-deposit-note {
+    margin-top: 8px;
+    font-size: 13px;
+    font-style: italic;
+    color: #555;
 }
 
 .summary-container {

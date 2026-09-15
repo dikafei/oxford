@@ -60,6 +60,24 @@ class ATG_Tour_Frontend_Data {
         $is_escorted = $this->get_is_escorted( $post->ID );
         $tour_data['is_escorted'] = $is_escorted;
 
+        // Open-season months (from the existing "Route Open" field, meta key
+        // "month" - already filled in and displayed on every tour page today).
+        // Used by the Footloose/Independent calendar (2026-09) to reject dates
+        // outside the tour's actual season, on top of the existing
+        // "Route Closure Dates" (blocked_dates) day-level closures.
+        $tour_data['open_months'] = $this->get_open_months( $post->ID );
+
+        // Closure date ranges (from the "Route Closure Dates" repeater, meta
+        // key "_departure") for the Footloose/Independent calendar. Read
+        // directly here rather than relying on the "blocked_dates" hidden
+        // field's JetFormBuilder dynamic-value preset in the booking form,
+        // which was found (2026-09) to resolve empty for this field - the
+        // preset appears to mis-handle this repeater's JetEngine conditional
+        // logic (gated on the tour_type checkbox field) when formatting the
+        // value, so closure dates silently stopped being enforced on the
+        // calendar despite being filled in correctly in wp-admin.
+        $tour_data['server_blocked_dates'] = $this->get_blocked_dates( $post->ID );
+
         // Add pricing fields only if tour is escorted
         if ( $is_escorted ) {
             $tour_data['pricing_double'] = $this->get_pricing_field( $post->ID, '_pricing' );
@@ -98,6 +116,100 @@ class ATG_Tour_Frontend_Data {
 
         // Check if Escorted is set to true
         return isset( $tour_type_data['Escorted'] ) && $tour_type_data['Escorted'] === 'true';
+    }
+
+    /**
+     * Parse the "Route Open" custom field (meta key "month") into a list of
+     * open month numbers (1-12). Stored the same way as tour_type above - a
+     * serialized associative array keyed by month name with string "true"/
+     * "false" values. Note the "January " key has a trailing space in the
+     * saved data (a quirk of how the field was originally set up), so keys
+     * are trimmed before matching.
+     *
+     * @param int $post_id Post ID
+     * @return array Month numbers (1-12) the tour is open in. Empty array if
+     *                the field isn't set, which callers should treat as "no
+     *                restriction" (don't filter) rather than "always closed".
+     */
+    private function get_open_months( $post_id ) {
+        $month_names = array(
+            'January' => 1, 'February' => 2, 'March' => 3, 'April' => 4,
+            'May' => 5, 'June' => 6, 'July' => 7, 'August' => 8,
+            'September' => 9, 'October' => 10, 'November' => 11, 'December' => 12,
+        );
+
+        $month_field = get_post_meta( $post_id, 'month', true );
+
+        if ( empty( $month_field ) ) {
+            return array();
+        }
+
+        $month_data = maybe_unserialize( $month_field );
+
+        if ( ! is_array( $month_data ) ) {
+            return array();
+        }
+
+        $open_months = array();
+        foreach ( $month_data as $name => $value ) {
+            $name = trim( $name );
+            if ( isset( $month_names[ $name ] ) && $value === 'true' ) {
+                $open_months[] = $month_names[ $name ];
+            }
+        }
+
+        return $open_months;
+    }
+
+    /**
+     * Read the tour's closure date ranges directly from the "Route Closure
+     * Dates" repeater (meta key "_departure", used for Footloose/Independent
+     * tours) instead of relying on the "blocked_dates" hidden field's
+     * JetFormBuilder dynamic-value preset in the booking form. Each row's
+     * sub-fields are saved as "start_date_independent"/"end_date_independent"
+     * (JetEngine repeater field names); normalized here to generic
+     * start_date/end_date keys so the existing JS closure-date logic
+     * (originally written for the escorted date-range repeater, whose
+     * sub-fields happen to be named plain start_date/end_date) can consume
+     * it unchanged.
+     *
+     * @param int $post_id Post ID
+     * @return array List of ['start_date' => ..., 'end_date' => ...] rows.
+     */
+    private function get_blocked_dates( $post_id ) {
+        $raw = get_post_meta( $post_id, '_departure', true );
+
+        if ( empty( $raw ) ) {
+            return array();
+        }
+
+        $rows = maybe_unserialize( $raw );
+
+        if ( ! is_array( $rows ) ) {
+            return array();
+        }
+
+        $blocked_dates = array();
+
+        foreach ( $rows as $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+
+            $start = isset( $row['start_date_independent'] ) ? $row['start_date_independent'] : ( isset( $row['start_date'] ) ? $row['start_date'] : '' );
+            $end   = isset( $row['end_date_independent'] ) ? $row['end_date_independent'] : ( isset( $row['end_date'] ) ? $row['end_date'] : '' );
+
+            if ( empty( $start ) || empty( $end ) ) {
+                continue;
+            }
+
+            $blocked_dates[] = array(
+                'start_date' => $start,
+                'end_date'   => $end,
+            );
+        }
+
+        return $blocked_dates;
     }
 
     /**
@@ -528,6 +640,7 @@ function atg_render_booking_detail_boxes($fields) {
     // ---- Room Details: walk main room + each additional room, same as the review page ----
     $rooms_html = '';
     $total_passengers = 0;
+    $booking_total = 0;
     $i = 0;
     while (true) {
         $suffix = $i > 0 ? '_' . $i : '';
@@ -540,7 +653,9 @@ function atg_render_booking_detail_boxes($fields) {
         $room_type = rawRoomTypeToDisplayRoomType($fields[$room_key]);
         $passenger_count = isset($fields['number_of_passenger' . $suffix]) ? intval($fields['number_of_passenger' . $suffix]) : 0;
         $total_passengers += $passenger_count;
-        $subtotal = isset($fields['sub_total' . $suffix]) ? atg_format_currency($fields['sub_total' . $suffix]) : '';
+        $subtotal_raw = isset($fields['sub_total' . $suffix]) ? $fields['sub_total' . $suffix] : '';
+        $subtotal = $subtotal_raw !== '' ? atg_format_currency($subtotal_raw) : '';
+        $booking_total += (float) preg_replace('/[^0-9.]/', '', (string) $subtotal_raw);
 
         // DOB (like Title/First/Last Name above) is only present in $fields via
         // the generic $_POST backfill hook, since it's not a real JetFormBuilder
@@ -562,12 +677,14 @@ function atg_render_booking_detail_boxes($fields) {
             }
         }
 
+        // Passenger Details is listed before Room Type/Passengers/Subtotal,
+        // matching the review page's generateCompleteSummary() ordering.
         $rooms_html .= '
             <div class="summary-room-details-container">
+                <div class="summary-rd-passenger-names"><strong>Passenger Details:</strong> ' . esc_html(implode(', ', $names)) . '</div>
                 <div class="summary-rd-room-type"><strong>Room Type:</strong> ' . esc_html($room_type) . '</div>
                 <div class="summary-rd-passengers"><strong>Passengers:</strong> ' . esc_html($passenger_count) . '</div>
                 <div class="summary-rd-subtotal"><strong>Subtotal:</strong> ' . $subtotal . '</div>
-                <div class="summary-rd-passenger-names"><strong>Passenger Names:</strong> ' . esc_html(implode(', ', $names)) . '</div>
             </div>
         ';
 
@@ -576,20 +693,6 @@ function atg_render_booking_detail_boxes($fields) {
 
     if (empty($rooms_html)) {
         $rooms_html = '<div>No room data available</div>';
-    }
-
-    // "Deposit Paid: £400 (£200 per passenger)" - this is the thank-you page,
-    // shown after the deposit has actually gone through, so it's "Paid" here
-    // rather than "Due" (see atg_render_booking_detail_boxes_email() /
-    // booking_summary_shortcode() for the review-page/email wording). The
-    // per-passenger bracket is only shown for more than one passenger.
-    $deposit_html = '';
-    if (isset($fields['deposit']) && $fields['deposit'] !== '') {
-        $deposit_total = (float) preg_replace('/[^0-9.]/', '', (string) $fields['deposit']);
-        $per_passenger = $total_passengers > 0 ? $deposit_total / $total_passengers : $deposit_total;
-        $deposit_html = '<div class="summary-deposit-due"><strong>Deposit Paid:</strong> ' . atg_format_currency($deposit_total)
-            . ($total_passengers > 1 ? ' (' . atg_format_currency($per_passenger) . ' per passenger)' : '')
-            . '</div>';
     }
 
     $additional_requests_html = '';
@@ -603,6 +706,31 @@ function atg_render_booking_detail_boxes($fields) {
             </div>';
     }
 
+    // "Total Holiday Cost" - Booking total (sum of all room subtotals) + the
+    // deposit, mirroring the review page's Total Holiday Cost section
+    // (generateCompleteSummary() in jetform-enhancement.js). This is the
+    // thank-you page, shown after the deposit has actually gone through, so
+    // it reads "Deposit Paid" here rather than "Deposit due" (see
+    // atg_render_booking_detail_boxes_email() / booking_summary_shortcode()
+    // for the review-page/email wording). The per-passenger bracket is only
+    // shown for more than one passenger.
+    $total_holiday_cost_html = '';
+    if (isset($fields['deposit']) && $fields['deposit'] !== '') {
+        $deposit_total = (float) preg_replace('/[^0-9.]/', '', (string) $fields['deposit']);
+        $per_passenger = $total_passengers > 0 ? $deposit_total / $total_passengers : $deposit_total;
+        $total_holiday_cost_html = '
+            <div class="summary-total-holiday-cost">
+                <div class="summary-container">
+                    <div class="summary-title">Total Holiday Cost</div>
+                    <div class="summary-booking-total"><strong>Booking total:</strong> ' . atg_format_currency($booking_total) . '</div>
+                    <div class="summary-deposit-due"><strong>Deposit Paid:</strong> ' . atg_format_currency($deposit_total)
+                        . ($total_passengers > 1 ? ' (' . atg_format_currency($per_passenger) . ' per passenger)' : '') . '</div>
+                    <div class="summary-deposit-note">Your deposit is FULLY REFUNDABLE if we cannot arrange your holiday exactly as you wish.</div>
+                </div>
+            </div>
+        ';
+    }
+
     $html = '
         <div class="summary-wrapper">
             <div class="summary-holiday-details summary-inner-wrapper">
@@ -611,7 +739,6 @@ function atg_render_booking_detail_boxes($fields) {
                     <div class="summary-trip-selected"><strong>Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
                     <div class="summary-trip-length"><strong>Trip Length:</strong> ' . esc_html($trip_length) . '</div>
                     <div class="summary-departure-date"><strong>Travel Dates:</strong> ' . $departure . '</div>
-                    ' . $deposit_html . '
                     ' . $itinerary_html . '
                 </div>
             </div>
@@ -629,11 +756,12 @@ function atg_render_booking_detail_boxes($fields) {
 
         <div class="summary-room-details">
             <div class="summary-container">
-                <div class="summary-title">Room Details</div>
+                <div class="summary-title">Passenger and Room Details</div>
                 ' . $rooms_html . '
             </div>
         </div>
-        ' . $additional_requests_html;
+        ' . $additional_requests_html . '
+        ' . $total_holiday_cost_html;
 
     // Note message, closing line, team name, phone, and email are all editable
     // under Settings > ATG Booking Settings instead of being hardcoded here.
@@ -843,6 +971,8 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
 
     // ---- Room Details: main room + each additional room, own white card per room ----
     $room_cards = array();
+    $total_passengers = 0;
+    $booking_total = 0;
     $i = 0;
     while ( true ) {
         $suffix = $i > 0 ? '_' . $i : '';
@@ -854,7 +984,10 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
 
         $room_type = rawRoomTypeToDisplayRoomType( $fields[ $room_key ] );
         $passenger_count = isset( $fields[ 'number_of_passenger' . $suffix ] ) ? intval( $fields[ 'number_of_passenger' . $suffix ] ) : 0;
-        $subtotal = isset( $fields[ 'sub_total' . $suffix ] ) ? atg_format_currency( $fields[ 'sub_total' . $suffix ] ) : '';
+        $total_passengers += $passenger_count;
+        $subtotal_raw = isset( $fields[ 'sub_total' . $suffix ] ) ? $fields[ 'sub_total' . $suffix ] : '';
+        $subtotal = $subtotal_raw !== '' ? atg_format_currency( $subtotal_raw ) : '';
+        $booking_total += (float) preg_replace( '/[^0-9.]/', '', (string) $subtotal_raw );
 
         // DOB (passenger_dob_N / passenger_dob_<room>_N) is a plain text field
         // typed as dd-mm-yyyy on the intake form (see the .atg-dob-input
@@ -880,10 +1013,12 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
             }
         }
 
-        $room_cards[] = atg_email_row( 'Room Type', esc_html( $room_type ) )
-            . atg_email_row( 'Passengers', esc_html( $passenger_count ) )
-            . ( $show_pricing ? atg_email_row( 'Subtotal', $subtotal ) : '' )
-            . atg_email_row( 'Passenger Names', esc_html( implode( ', ', $names ) ), true );
+        // Passenger Details is listed before Room Type/Passengers/Subtotal,
+        // matching the review page's generateCompleteSummary() ordering.
+        $room_cards[] = atg_email_row( 'Passenger Details', esc_html( implode( ', ', $names ) ) )
+            . atg_email_row( 'Room Type', esc_html( $room_type ) )
+            . atg_email_row( 'Passengers', esc_html( $passenger_count ), ! $show_pricing )
+            . ( $show_pricing ? atg_email_row( 'Subtotal', $subtotal, true ) : '' );
 
         $i++;
     }
@@ -905,10 +1040,28 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
         $additional_html = atg_email_section( 'Additional Requests', '<div style="font-size:14px;color:#333333;line-height:1.6;">' . nl2br( esc_html( $additional_requests ) ) . '</div>' );
     }
 
+    // ---- Total Holiday Cost ---- mirrors the review page's Total Holiday
+    // Cost section (generateCompleteSummary() in jetform-enhancement.js).
+    // Only relevant for 31190 (which takes payment) - $show_pricing is false
+    // for 31192 (the customise-itinerary form), which has no deposit/prices.
+    $total_holiday_cost_html = '';
+    if ( $show_pricing && isset( $fields['deposit'] ) && $fields['deposit'] !== '' ) {
+        $deposit_total = (float) preg_replace( '/[^0-9.]/', '', (string) $fields['deposit'] );
+        $per_passenger = $total_passengers > 0 ? $deposit_total / $total_passengers : $deposit_total;
+        $total_holiday_cost_rows = atg_email_row( 'Booking total', atg_format_currency( $booking_total ) )
+            . atg_email_row(
+                'Deposit Paid',
+                atg_format_currency( $deposit_total ) . ( $total_passengers > 1 ? ' (' . atg_format_currency( $per_passenger ) . ' per passenger)' : '' )
+            )
+            . '<div style="margin:8px 0 0;font-size:13px;font-style:italic;color:' . ATG_EMAIL_MUTED . ';">Your deposit is FULLY REFUNDABLE if we cannot arrange your holiday exactly as you wish.</div>';
+        $total_holiday_cost_html = atg_email_section( 'Total Holiday Cost', $total_holiday_cost_rows );
+    }
+
     return atg_email_section( 'Holiday Details', $holiday_rows )
         . atg_email_section( 'Lead Passenger Details', $lead_rows )
-        . atg_email_section( 'Room Details', $rooms_inner )
-        . $additional_html;
+        . atg_email_section( 'Passenger and Room Details', $rooms_inner )
+        . $additional_html
+        . $total_holiday_cost_html;
 }
 
 /**
@@ -1293,6 +1446,12 @@ add_filter( 'jet-tabs/widget/loop-items', function( $items, $list, $widget ) {
 
 
 // Location by Hotel
+// NOTE (2026-09): This block (and its near-duplicate below) target select[name="location"]
+// and select[name="hotel"], which no longer exist on the customize form (31192) — those
+// fields were restructured into a repeater (Itinerary[N][hotel_location] / [hotel_name])
+// during the Add-Your-Stay rework, and hotel options are now populated by JetFormBuilder's
+// own dynamic-field logic per itinerary stop. This jQuery/AJAX handler never fires as a
+// result and is effectively dead code. Left in place for now; safe to remove later.
 // Enqueue jQuery if not already loaded
 add_action( 'wp_enqueue_scripts', function() {
     wp_enqueue_script( 'jquery' );
@@ -1356,6 +1515,8 @@ add_action( 'wp_footer', function() {
 });
 
 
+// NOTE (2026-09): Duplicate of the dead block above — same select[name="location"]/[name="hotel"]
+// selectors that don't match anything on the current form. Also dead code.
 // Enqueue jQuery
 add_action( 'wp_enqueue_scripts', function() {
     wp_enqueue_script( 'jquery' );
@@ -1722,3 +1883,75 @@ add_action( 'jet-form-builder/form-record/save-record-action', function( $record
         wp_mail( $internal_recipient, $internal_subject, $email_content_internal, $headers );
     }
 }, 10, 2 );
+
+/**
+ * Reliable "Customise my Itinerary" CTA render (2026-09).
+ *
+ * The "Customise my Itinerary" accordion tab on independent tour pages
+ * (JetElements Accordion widget, template #27999 set as its tab content)
+ * has intermittently rendered empty — the button/text just disappears with
+ * no content change on our end. This is NOT a publishing/draft issue: the
+ * template's own standalone permalink has always rendered fine every time
+ * we've checked; only JetElements' own internal fetch of that template into
+ * the accordion tab goes stale. Elementor's "Clear Files & Data" cache-clear
+ * fixes it temporarily, but it has recurred more than once, so it isn't a
+ * durable fix.
+ *
+ * Workaround: render the template ourselves via Elementor's own
+ * get_builder_content_for_display() — the same reliable core function used
+ * by Elementor's native Template widget/shortcode, and the exact code path
+ * that has always worked on the standalone permalink. We output it into a
+ * hidden container in wp_footer (with CSS inlined, since we're rendering
+ * outside the normal <head> CSS pipeline), then move it into the accordion
+ * panel via JS on page load — completely bypassing JetElements' own flaky
+ * nested-template fetch/cache. If this template is ever restructured, only
+ * the accordion's visual position needs to keep matching
+ * data-template-id="27999" on its .jet-toggle__content panel.
+ */
+add_action( 'wp_footer', function() {
+    if ( ! is_singular( 'tour' ) ) {
+        return;
+    }
+
+    if ( ! class_exists( '\Elementor\Plugin' ) || empty( \Elementor\Plugin::$instance->frontend ) ) {
+        return;
+    }
+
+    $customise_template_id = 27999;
+
+    $content = \Elementor\Plugin::$instance->frontend->get_builder_content_for_display( $customise_template_id, true );
+
+    if ( empty( $content ) ) {
+        return;
+    }
+    ?>
+    <div id="atg-customise-cta-source" style="display:none" aria-hidden="true"><?php echo $content; // phpcs:ignore -- Elementor-rendered trusted template markup. ?></div>
+    <script type="text/javascript">
+    (function() {
+        function moveCustomiseCta() {
+            var source = document.getElementById('atg-customise-cta-source');
+            if ( ! source ) {
+                return;
+            }
+            var target = document.querySelector('.jet-toggle__content[data-template-id="<?php echo esc_js( $customise_template_id ); ?>"]');
+            if ( ! target ) {
+                // No matching accordion tab on this page (e.g. escorted tours don't have
+                // this section) - nothing to do, just clean up the hidden source.
+                source.remove();
+                return;
+            }
+            // Replace whatever JetElements' own (unreliable) template fetch put here,
+            // regardless of whether it succeeded, rendered stale, or rendered empty.
+            target.innerHTML = source.innerHTML;
+            source.remove();
+        }
+
+        if ( document.readyState === 'loading' ) {
+            document.addEventListener( 'DOMContentLoaded', moveCustomiseCta );
+        } else {
+            moveCustomiseCta();
+        }
+    })();
+    </script>
+    <?php
+}, 20 );
