@@ -61,21 +61,26 @@ class ATG_Tour_Frontend_Data {
         $tour_data['is_escorted'] = $is_escorted;
 
         // Open-season months (from the existing "Route Open" field, meta key
-        // "month" - already filled in and displayed on every tour page today).
-        // Used by the Footloose/Independent calendar (2026-09) to reject dates
-        // outside the tour's actual season, on top of the existing
-        // "Route Closure Dates" (blocked_dates) day-level closures.
+        // "month"). STILL LOCALIZED but no longer applied by the calendar
+        // (2026-09-29 client request - retired in favour of the "Route Open
+        // Dates" whitelist below) - left here and in wp-admin unused/harmless
+        // in case something else ever needs it, rather than deleting.
         $tour_data['open_months'] = $this->get_open_months( $post->ID );
 
-        // Closure date ranges (from the "Route Closure Dates" repeater, meta
-        // key "_departure") for the Footloose/Independent calendar. Read
-        // directly here rather than relying on the "blocked_dates" hidden
-        // field's JetFormBuilder dynamic-value preset in the booking form,
-        // which was found (2026-09) to resolve empty for this field - the
-        // preset appears to mis-handle this repeater's JetEngine conditional
-        // logic (gated on the tour_type checkbox field) when formatting the
-        // value, so closure dates silently stopped being enforced on the
-        // calendar despite being filled in correctly in wp-admin.
+        // "Route Open Dates" (meta key "_departure", labelled "Route Closure
+        // Dates" in wp-admin until 2026-09-29) for the Footloose/Independent
+        // calendar. As of 2026-09-29 (client request) these ranges are read
+        // by the JS as a WHITELIST of bookable dates instead of a blacklist
+        // of closed ones - see openDateRanges/isDateWithinOpenRanges() in
+        // jetform-enhancement.js. Read directly here rather than relying on
+        // the "blocked_dates" hidden field's JetFormBuilder dynamic-value
+        // preset in the booking form, which was found (2026-09) to resolve
+        // empty for this field - the preset appears to mis-handle this
+        // repeater's JetEngine conditional logic (gated on the tour_type
+        // checkbox field) when formatting the value, so these dates silently
+        // stopped being enforced on the calendar despite being filled in
+        // correctly in wp-admin. (Property name "server_blocked_dates" kept
+        // for now to avoid touching every JS reference to it.)
         $tour_data['server_blocked_dates'] = $this->get_blocked_dates( $post->ID );
 
         // Add pricing fields only if tour is escorted
@@ -177,39 +182,7 @@ class ATG_Tour_Frontend_Data {
      * @return array List of ['start_date' => ..., 'end_date' => ...] rows.
      */
     private function get_blocked_dates( $post_id ) {
-        $raw = get_post_meta( $post_id, '_departure', true );
-
-        if ( empty( $raw ) ) {
-            return array();
-        }
-
-        $rows = maybe_unserialize( $raw );
-
-        if ( ! is_array( $rows ) ) {
-            return array();
-        }
-
-        $blocked_dates = array();
-
-        foreach ( $rows as $row ) {
-            if ( ! is_array( $row ) ) {
-                continue;
-            }
-
-            $start = isset( $row['start_date_independent'] ) ? $row['start_date_independent'] : ( isset( $row['start_date'] ) ? $row['start_date'] : '' );
-            $end   = isset( $row['end_date_independent'] ) ? $row['end_date_independent'] : ( isset( $row['end_date'] ) ? $row['end_date'] : '' );
-
-            if ( empty( $start ) || empty( $end ) ) {
-                continue;
-            }
-
-            $blocked_dates[] = array(
-                'start_date' => $start,
-                'end_date'   => $end,
-            );
-        }
-
-        return $blocked_dates;
+        return atg_get_route_open_date_ranges( $post_id );
     }
 
     /**
@@ -266,6 +239,169 @@ class ATG_Tour_Frontend_Data {
 
 // Initialize the class
 new ATG_Tour_Frontend_Data();
+
+/**
+ * Read a tour's "Route Open Dates" repeater (meta key "_departure", labelled
+ * "Route Closure Dates" in wp-admin until 2026-09-29) into a plain array of
+ * ['start_date' => ..., 'end_date' => ...] rows. Shared by
+ * ATG_Tour_Frontend_Data::get_blocked_dates() (localized to the booking
+ * calendar's JS) and atg_format_upcoming_route_open_dates() below (used by
+ * the "Route Open Dates (Upcoming)" Elementor dynamic tag).
+ *
+ * @param int $post_id Post ID
+ * @return array List of ['start_date' => ..., 'end_date' => ...] rows.
+ */
+function atg_get_route_open_date_ranges( $post_id ) {
+    $raw = get_post_meta( $post_id, '_departure', true );
+
+    if ( empty( $raw ) ) {
+        return array();
+    }
+
+    $rows = maybe_unserialize( $raw );
+
+    if ( ! is_array( $rows ) ) {
+        return array();
+    }
+
+    $ranges = array();
+
+    foreach ( $rows as $row ) {
+        if ( ! is_array( $row ) ) {
+            continue;
+        }
+
+        $start = isset( $row['start_date_independent'] ) ? $row['start_date_independent'] : ( isset( $row['start_date'] ) ? $row['start_date'] : '' );
+        $end   = isset( $row['end_date_independent'] ) ? $row['end_date_independent'] : ( isset( $row['end_date'] ) ? $row['end_date'] : '' );
+
+        if ( empty( $start ) || empty( $end ) ) {
+            continue;
+        }
+
+        $ranges[] = array(
+            'start_date' => $start,
+            'end_date'   => $end,
+        );
+    }
+
+    return $ranges;
+}
+
+/**
+ * Format a tour's upcoming "Route Open Dates" ranges as "dd-mm-yyyy to
+ * dd-mm-yyyy", one per line (2026-09-29 client request - replaces the old
+ * "Route Open" months display, e.g. "May, June, July..."). Ranges that have
+ * already fully ended are left out entirely ("only show upcoming range"),
+ * and the remaining ones are sorted chronologically by start date.
+ *
+ * @param int $post_id Post ID
+ * @return string HTML (uses <br> between lines) - empty string if the tour
+ *                 has no upcoming open-date ranges configured.
+ */
+function atg_format_upcoming_route_open_dates( $post_id ) {
+    $ranges = atg_get_route_open_date_ranges( $post_id );
+
+    if ( empty( $ranges ) ) {
+        return '';
+    }
+
+    $today_ts = strtotime( current_time( 'Y-m-d' ) );
+    $upcoming = array();
+
+    foreach ( $ranges as $range ) {
+        // Strip any time portion ("2026-10-25T00:00" -> "2026-10-25"),
+        // same as the JS side (isDateWithinOpenRanges() in
+        // jetform-enhancement.js).
+        $start_raw = strtok( (string) $range['start_date'], 'T' );
+        $end_raw   = strtok( (string) $range['end_date'], 'T' );
+
+        $start_ts = strtotime( $start_raw );
+        $end_ts   = strtotime( $end_raw );
+
+        if ( ! $start_ts || ! $end_ts ) {
+            continue;
+        }
+
+        // Fix reversed ranges (end before start), same defensive handling
+        // as the JS side.
+        if ( $end_ts < $start_ts ) {
+            list( $start_ts, $end_ts ) = array( $end_ts, $start_ts );
+        }
+
+        // Only upcoming ranges - skip any that have already fully ended.
+        if ( $end_ts < $today_ts ) {
+            continue;
+        }
+
+        $upcoming[] = array( 'start_ts' => $start_ts, 'end_ts' => $end_ts );
+    }
+
+    if ( empty( $upcoming ) ) {
+        return '';
+    }
+
+    usort( $upcoming, function( $a, $b ) {
+        return $a['start_ts'] <=> $b['start_ts'];
+    } );
+
+    $lines = array_map( function( $range ) {
+        return date( 'd-m-Y', $range['start_ts'] ) . ' to ' . date( 'd-m-Y', $range['end_ts'] );
+    }, $upcoming );
+
+    return implode( '<br>', $lines );
+}
+
+/**
+ * Elementor dynamic tag: "Route Open Dates (Upcoming)". Registered so the
+ * "Route Open" jet-headline widgets on the tour single page template and
+ * the archive/listing template can switch from the old "Custom Field"
+ * (month checkboxes) tag to this one, which renders
+ * atg_format_upcoming_route_open_dates() for the current post. A plain
+ * "Custom Field" tag can't do this itself since the underlying data is a
+ * repeater (JetEngine excludes repeater fields from that tag's Field
+ * dropdown), not a simple text field.
+ */
+add_action( 'elementor/dynamic_tags/register', function( $dynamic_tags_manager ) {
+    if ( ! class_exists( '\Elementor\Core\DynamicTags\Tag' ) ) {
+        return;
+    }
+
+    if ( ! class_exists( 'ATG_Route_Open_Dates_Tag' ) ) {
+        class ATG_Route_Open_Dates_Tag extends \Elementor\Core\DynamicTags\Tag {
+
+            public function get_name() {
+                return 'atg-route-open-dates';
+            }
+
+            public function get_title() {
+                return 'Route Open Dates (Upcoming)';
+            }
+
+            public function get_group() {
+                return 'atg-tour-data';
+            }
+
+            public function get_categories() {
+                return array( \Elementor\Modules\DynamicTags\Module::TEXT_CATEGORY );
+            }
+
+            public function render() {
+                $post_id = get_the_ID();
+
+                if ( ! $post_id ) {
+                    return;
+                }
+
+                // phpcs:ignore WordPress.Security.EscapeOutput -- output is
+                // our own generated dd-mm-yyyy/<br> markup, nothing user-supplied.
+                echo atg_format_upcoming_route_open_dates( $post_id );
+            }
+        }
+    }
+
+    $dynamic_tags_manager->register_group( 'atg-tour-data', array( 'title' => 'ATG Tour Data' ) );
+    $dynamic_tags_manager->register( new ATG_Route_Open_Dates_Tag() );
+} );
 
 add_action('wp_footer', function() {
     if (is_singular('tour')) {

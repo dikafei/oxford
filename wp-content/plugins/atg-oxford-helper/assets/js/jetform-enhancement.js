@@ -284,7 +284,22 @@ window.atgFormatCurrency = function(amount) {
     // Store configuration globally
     window.jetformDatepickerConfig = {
         dateRanges: [],
-        blockedDates: [],
+        // "Route Open Dates" (2026-09-29 client request, formerly labelled
+        // "Route Closure Dates" in wp-admin) - a WHITELIST of bookable date
+        // ranges for Footloose/Independent tours, read from the same
+        // "_departure" repeater postmeta as before (see get_blocked_dates()
+        // in frontend-data.php - name kept there for now). Empty means the
+        // tour has no open ranges configured yet, so every date is disabled
+        // (fully closed) - see openDatesFieldPresent below and
+        // isDateWithinOpenRanges() further down.
+        openDateRanges: [],
+        // True once the "Route Open Dates" field markup (input[name="blocked_dates"])
+        // is found on the page - i.e. this is an Independent/Footloose tour's
+        // booking form. Used to decide whether the fully-closed-by-default
+        // whitelist logic applies at all, so it doesn't accidentally block
+        // every date on forms that don't have this field (e.g. the
+        // Customise-itinerary form's own _departure field).
+        openDatesFieldPresent: false,
         flatpickrInstances: new Map(),
         processedInputs: new Set(), // Track which inputs we've already processed
         datepickerCreated: false // Track if datepicker has been created
@@ -329,68 +344,38 @@ window.atgFormatCurrency = function(amount) {
         return true;
     }
     
-    // Process blocked dates from blocked_dates field
-    function processBlockedDatesField() {
-        // Prefer the server-computed closure dates (2026-09) - read directly
-        // from the "Route Closure Dates" repeater postmeta in frontend-data.php
-        // and localized as window.atg_tour_data.server_blocked_dates. The
-        // "blocked_dates" hidden field's JetFormBuilder dynamic-value preset
-        // (parsed below as a fallback) was found to resolve empty for this
-        // repeater - likely a JetFormBuilder/JetEngine quirk around the
-        // repeater's conditional logic - so closure dates stopped being
-        // enforced even though they're filled in correctly in wp-admin.
-        const serverBlockedDates = (window.atg_tour_data || {}).server_blocked_dates;
-        if (Array.isArray(serverBlockedDates) && serverBlockedDates.length > 0) {
-            window.jetformDatepickerConfig.blockedDates = serverBlockedDates;
-            return true;
-        }
+    // Process the "Route Open Dates" field (formerly "Route Closure Dates" -
+    // 2026-09-29 client request: the repeater is now read as a whitelist of
+    // bookable ranges instead of a blacklist of closed ranges - see
+    // openDateRanges above). Callers only invoke this once they've already
+    // confirmed the blocked_dates field markup exists on the page, so no
+    // need to re-check that here - and critically, this always marks
+    // openDatesFieldPresent and returns true even when zero ranges are
+    // found, since an Independent/Footloose tour with nothing entered yet
+    // must still be treated as fully closed rather than unrestricted.
+    function processOpenDatesField() {
+        window.jetformDatepickerConfig.openDatesFieldPresent = true;
 
-        const blockedDatesField = document.querySelector('input[name="blocked_dates"][data-dynamic-value]');
-        if (!blockedDatesField) {
-            // console.log("No blocked_dates field found");
-            return false;
-        }
-
-        const rawData = blockedDatesField.getAttribute("data-dynamic-value");
-
-        if (!rawData) {
-            // console.log("No data-dynamic-value found");
-            return false;
-        }
-
-        let parsedData;
-        try {
-            const decoded = rawData.replace(/&quot;/g, '"');
-            parsedData = JSON.parse(decoded);
-        } catch (e) {
-            // Error parsing blocked_dates data
-            return false;
-        }
-
-        // Look for the rule with to_set array
-        const rule = parsedData.find(r => r.to_set && Array.isArray(r.to_set));
-        if (!rule || !rule.to_set || rule.to_set.length === 0) {
-            // console.log("No valid blocked dates found");
-            return false;
-        }
-
-        // Extract blocked date ranges
-        window.jetformDatepickerConfig.blockedDates = rule.to_set;
-
+        // Read the server-computed ranges (2026-09) directly from the
+        // "Route Open Dates" repeater postmeta in frontend-data.php,
+        // localized as window.atg_tour_data.server_blocked_dates (name kept
+        // there for now - see get_blocked_dates()). The "blocked_dates"
+        // hidden field's own JetFormBuilder dynamic-value preset was found
+        // (2026-09) to resolve empty for this repeater - likely a
+        // JetFormBuilder/JetEngine quirk around the repeater's conditional
+        // logic - so it's read server-side instead rather than parsed from
+        // the field's data-dynamic-value attribute.
+        const serverOpenDates = (window.atg_tour_data || {}).server_blocked_dates;
+        window.jetformDatepickerConfig.openDateRanges = Array.isArray(serverOpenDates) ? serverOpenDates : [];
 
         return true;
     }
-    
+
     // Function to check if field has specific dates (should use dropdown)
     function hasDateRanges() {
         return window.jetformDatepickerConfig.dateRanges.length > 0;
     }
-    
-    // Function to check if field has blocked dates (should use datepicker)
-    function hasBlockedDates() {
-        return window.jetformDatepickerConfig.blockedDates.length > 0;
-    }
-    
+
     // Function to format date ranges for display
     function formatDateRange(startDateStr, endDateStr) {
         // Handle both date formats: "2025-09-18" and "2025-09-18T00:00"
@@ -420,52 +405,42 @@ window.atgFormatCurrency = function(amount) {
         return `${formattedStart} to ${formattedEnd}`;
     }
     
-    // Function to generate blocked dates for Flatpickr
-    function generateBlockedDatesForFlatpickr(blockedRanges) {
-        const disabledDates = [];
-        
-        blockedRanges.forEach(range => {
+    // Check whether a given date falls within any of the tour's "Route Open
+    // Dates" ranges (2026-09-29 client request - see openDateRanges above).
+    // Used as a Flatpickr `disable` predicate (see initFlatpickrForElement):
+    // returns false for any date outside every entered range, including -
+    // deliberately - when there are no ranges at all, so an unconfigured
+    // tour disables every date rather than allowing everything.
+    function isDateWithinOpenRanges(date, openRanges) {
+        const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+        return openRanges.some(function(range) {
             // Handle both date formats: "2025-09-18" and "2025-09-18T00:00"
             let startDateStr = range.start_date;
             let endDateStr = range.end_date;
-            
-            // Remove time portion if present
+
             if (startDateStr.includes('T')) {
                 startDateStr = startDateStr.split('T')[0];
             }
             if (endDateStr.includes('T')) {
                 endDateStr = endDateStr.split('T')[0];
             }
-            
+
             let startDate = new Date(startDateStr);
             let endDate = new Date(endDateStr);
-            
-            // Fix invalid end dates
+
+            // Fix invalid ranges where the end date comes before the start date
             if (endDate < startDate) {
                 [startDate, endDate] = [endDate, startDate];
             }
-            
-            // Generate all dates in the range. Pushed as actual Date objects,
-            // not "YYYY-MM-DD" strings (2026-09 fix): Flatpickr's "disable"
-            // option re-parses string entries using the datepicker's
-            // configured display dateFormat ("d-m-Y" here - see
-            // initFlatpickrForElement), so ISO-format strings silently failed
-            // to parse and collapsed every disabled day down to the same
-            // fallback date. This went unnoticed until now because
-            // blocked_dates only just started resolving real data (was
-            // broken/empty before). Date objects sidestep the format parsing
-            // entirely.
-            const currentDate = new Date(startDate);
-            while (currentDate <= endDate) {
-                disabledDates.push(new Date(currentDate));
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-        });
 
-        // Remove duplicates
-        return [...new Set(disabledDates)];
+            const rangeStart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+            const rangeEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+            return target >= rangeStart && target <= rangeEnd;
+        });
     }
-    
+
     // Function to create dropdown for date ranges
     function createDropdownForDateRanges(input) {
         if (window.jetformDatepickerConfig.dateRanges.length === 0) {
@@ -613,11 +588,9 @@ window.atgFormatCurrency = function(amount) {
                     // Check if the popup contains our form
                     const departureInputs = document.querySelectorAll('input[name="_departure"]');
                     const hasDateRanges = window.jetformDatepickerConfig.dateRanges.length > 0;
-                    const hasBlockedDates = window.jetformDatepickerConfig.blockedDates.length > 0;
-                    const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
-                        && window.atg_tour_data.open_months.length > 0;
+                    const hasOpenDates = window.jetformDatepickerConfig.openDatesFieldPresent;
 
-                    if (departureInputs.length > 0 && (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) && !window.jetformDatepickerConfig.datepickerCreated) {
+                    if (departureInputs.length > 0 && (hasDateRanges || hasOpenDates) && !window.jetformDatepickerConfig.datepickerCreated) {
                         shouldInitialize = true;
                     }
                 }
@@ -642,11 +615,9 @@ window.atgFormatCurrency = function(amount) {
         setTimeout(function() {
             const departureInputs = document.querySelectorAll('input[name="_departure"]');
             const hasDateRanges = window.jetformDatepickerConfig.dateRanges.length > 0;
-            const hasBlockedDates = window.jetformDatepickerConfig.blockedDates.length > 0;
-            const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
-                && window.atg_tour_data.open_months.length > 0;
+            const hasOpenDates = window.jetformDatepickerConfig.openDatesFieldPresent;
 
-            if (departureInputs.length > 0 && (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) && !window.jetformDatepickerConfig.datepickerCreated) {
+            if (departureInputs.length > 0 && (hasDateRanges || hasOpenDates) && !window.jetformDatepickerConfig.datepickerCreated) {
 
                 createCustomDatePicker();
                 window.jetformDatepickerConfig.datepickerCreated = true;
@@ -664,56 +635,44 @@ window.atgFormatCurrency = function(amount) {
         
         // Process both fields if they exist
         let hasDateRanges = false;
-        let hasBlockedDates = false;
-        
+        let hasOpenDates = false;
+
         if (document.querySelector('input[name="departure_escorted"][data-dynamic-value]')) {
-          
+
             hasDateRanges = processDateRangesField();
         }
-        
-        if (document.querySelector('input[name="blocked_dates"][data-dynamic-value]')) {
-            
-            hasBlockedDates = processBlockedDatesField();
-        }
-        
-        // Also activate the custom picker purely for the open-season month filter
-        // (2026-09) even when blocked_dates/departure_escorted have no usable data -
-        // e.g. the blocked_dates dynamic-value tag can resolve to an empty to_set for
-        // a tour whose Route Closure Dates repeater is filled in correctly in wp-admin
-        // (a separate, pre-existing issue with that dynamic tag), which would otherwise
-        // silently skip the whole custom-picker path and leave the season filter inert.
-        const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
-            && window.atg_tour_data.open_months.length > 0;
 
-        if (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) {
+        if (document.querySelector('input[name="blocked_dates"][data-dynamic-value]')) {
+
+            hasOpenDates = processOpenDatesField();
+        }
+
+        if (hasDateRanges || hasOpenDates) {
 
             initializeDatepickerWhenReady();
         } else {
             // console.log("No valid data found in fields");
         }
     } else {
-        
+
         // Wait for fields to be added dynamically (when popup opens)
         const fieldObserver = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
                 if (mutation.addedNodes.length > 0) {
                     let hasDateRanges = false;
-                    let hasBlockedDates = false;
-                    
+                    let hasOpenDates = false;
+
                     if (document.querySelector('input[name="departure_escorted"][data-dynamic-value]')) {
-                        
+
                         hasDateRanges = processDateRangesField();
                     }
-                    
-                    if (document.querySelector('input[name="blocked_dates"][data-dynamic-value]')) {
-                        
-                        hasBlockedDates = processBlockedDatesField();
-                    }
-                    
-                    const hasOpenMonthsForSeasonFilter = Array.isArray((window.atg_tour_data || {}).open_months)
-                        && window.atg_tour_data.open_months.length > 0;
 
-                    if (hasDateRanges || hasBlockedDates || hasOpenMonthsForSeasonFilter) {
+                    if (document.querySelector('input[name="blocked_dates"][data-dynamic-value]')) {
+
+                        hasOpenDates = processOpenDatesField();
+                    }
+
+                    if (hasDateRanges || hasOpenDates) {
 
                         initializeDatepickerWhenReady();
                         fieldObserver.disconnect();
@@ -750,25 +709,28 @@ window.atgFormatCurrency = function(amount) {
         
         
         
-        // Generate disabled dates if we have blocked dates
+        // "Route Open Dates" (2026-09-29 client request, formerly "Route
+        // Closure Dates" - see openDateRanges/openDatesFieldPresent above):
+        // only dates inside one of the tour's entered ranges are bookable,
+        // so disable everything else via a Flatpickr predicate function.
+        // Gated on openDatesFieldPresent so this only applies to
+        // Independent/Footloose tours (where the blocked_dates field was
+        // actually found) - forms without that field, like the
+        // Customise-itinerary form's own _departure field, are left
+        // unrestricted, same as before. With zero ranges entered on a tour
+        // that does have the field, this predicate disables every date
+        // (fully closed), which is the intended default until the client
+        // configures at least one open range.
+        //
+        // The old "Route Open" months filter (window.atg_tour_data.open_months,
+        // post meta "month") has been retired per the same client request -
+        // it's no longer applied here, though the field itself is left as-is
+        // in wp-admin.
         let disabledDates = [];
-        if (window.jetformDatepickerConfig.blockedDates.length > 0) {
-            disabledDates = generateBlockedDatesForFlatpickr(window.jetformDatepickerConfig.blockedDates);
-
-        }
-
-        // Restrict to the tour's actual open season (2026-09, client request).
-        // Uses the existing "Route Open" months field (window.atg_tour_data.open_months,
-        // set in frontend-data.php from post meta "month" - already filled in per tour,
-        // no new data entry needed) on top of the existing day-level Route Closure Dates
-        // above. Flatpickr's disable array accepts a function alongside date strings, so
-        // this rejects any date whose month isn't checked as open. An empty open_months
-        // list means the field isn't set for this tour - treat that as "no restriction"
-        // rather than accidentally blocking every date.
-        const openMonths = (window.atg_tour_data || {}).open_months;
-        if (Array.isArray(openMonths) && openMonths.length > 0) {
+        if (window.jetformDatepickerConfig.openDatesFieldPresent) {
+            const openRanges = window.jetformDatepickerConfig.openDateRanges;
             disabledDates.push(function(date) {
-                return !openMonths.includes(date.getMonth() + 1);
+                return !isDateWithinOpenRanges(date, openRanges);
             });
         }
 
@@ -886,7 +848,7 @@ window.atgFormatCurrency = function(amount) {
             // (PRIORITY 1 above) gets this custom Flatpickr-driven text field,
             // whether or not the trip actually has blocked_dates configured.
             //
-            // Previously, hasBlockedDates()===false left the *native*
+            // Previously, having no blocked-dates data left the *native*
             // <input type="date"> untouched entirely (see the "else" branch
             // this replaced) - which meant its displayed format followed
             // whatever the customer's browser/OS locale happens to be
@@ -1249,11 +1211,23 @@ document.addEventListener("DOMContentLoaded", function () {
             // No room options were added to the select
             roomSelect.innerHTML = '<option value="" selected disabled>No room options available</option>';
         }
-		
+
 		 passengerInput.value = '';
-        
+
         window.tripData.selectedTripIndex = tripIndex;
         initializeCalculation();
+
+        // Re-apply the "Number of Passengers" capacity filtering (only room
+        // types that actually fit the remaining seats stay enabled/visible -
+        // see updateRoomSelectOptionsForCapacity()) since roomSelect.innerHTML
+        // was just rebuilt from scratch above, wiping out any disabled/hidden
+        // state a previous capacity pass had set on its options. Without this,
+        // e.g. choosing "1" passenger then picking/changing an itinerary stop
+        // (which re-triggers this function via window.atgPopulateRoomOptions,
+        // per the comment on that below) brought back Double/Twin Room as
+        // selectable even though only Single Occupancy fits 1 person
+        // (customise form, client request 2026-09).
+        updatePassengerCapacityUI(false);
     }
 
     // Exposed so other scripts (e.g. the customise-itinerary form's route-map
@@ -1956,8 +1930,39 @@ document.addEventListener("DOMContentLoaded", function () {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
     setTimeout(setupFormSyncIfPresent, 50);
 
-    document.addEventListener("elementor/popup/show", function () {
+    // Undoes everything hidePopupChromeOnSuccess() applies for the compact
+    // success-message layout (see that function, further down this file, for
+    // what each override is for and why). Normally run from the
+    // "elementor/popup/hide" listener below when the popup closes, but also
+    // called here at the very start of "elementor/popup/show" as a safety
+    // net: in practice "elementor/popup/hide" doesn't always fire for every
+    // way a user can close the popup (e.g. some close/backdrop-click paths),
+    // which was leaving a re-opened popup permanently stuck narrow (client
+    // report, 2026-09) even though closing it programmatically in testing
+    // always cleaned up correctly. Running the same cleanup again on open
+    // guarantees a fresh popup never inherits leftover compact styling,
+    // regardless of whether hide fired for the previous close.
+    function resetCompactPopupChrome() {
+        document.querySelectorAll('.e-con-full[style*="min-height"]').forEach(function(el) {
+            el.style.removeProperty('min-height');
+        });
+        document.querySelectorAll('.dialog-widget-content.atg-compact-popup').forEach(function(el) {
+            el.classList.remove('atg-compact-popup');
+        });
+        document.querySelectorAll('.elementor-popup-modal.atg-compact-popup-overlay').forEach(function(el) {
+            el.classList.remove('atg-compact-popup-overlay');
+        });
+        document.querySelectorAll('.atg-compact-popup-width-override').forEach(function(el) {
+            el.style.removeProperty('width');
+            el.style.removeProperty('max-width');
+            el.style.removeProperty('flex');
+            el.classList.remove('atg-compact-popup-width-override');
+        });
+    }
+
+    function handleElementorPopupShow() {
         // console.log("Elementor popup shown");
+        resetCompactPopupChrome();
         if (window.tripData.selectedTripIndex !== null) {
             const tripLabel = Object.keys(window.tripData.tripMap).find(
                 key => window.tripData.tripMap[key] === window.tripData.selectedTripIndex
@@ -1981,10 +1986,22 @@ document.addEventListener("DOMContentLoaded", function () {
             }, 500);
         }
         setTimeout(setupFormSyncIfPresent, 50);
-    });
+    }
+    // Elementor Pro actually dispatches "elementor/popup/show"/"hide" as a
+    // native CustomEvent on window (elements-handlers.js:
+    // "window.dispatchEvent(new CustomEvent(event, ...))"), alongside a
+    // jQuery-only $document.trigger() that jQuery's own custom-event bubbling
+    // never forwards to a plain document.addEventListener(). Listening on
+    // document alone (as this used to) meant this handler silently never ran
+    // on a real popup open/close - confirmed live, 2026-09, while chasing a
+    // client report that the customise popup stayed stuck at its shrunk
+    // success-message size after being reopened. Listening on both targets
+    // is the safe fix regardless of which Elementor version/build is live.
+    document.addEventListener("elementor/popup/show", handleElementorPopupShow);
+    window.addEventListener("elementor/popup/show", handleElementorPopupShow);
 
     // Clean up flatpickr instances when modal closes
-    document.addEventListener("elementor/popup/hide", function () {
+    function handleElementorPopupHide() {
         // console.log("Elementor popup hidden - cleaning up flatpickr instances");
         if (window.jetformDatepickerConfig && window.jetformDatepickerConfig.flatpickrInstances) {
             window.jetformDatepickerConfig.flatpickrInstances.forEach((instance, key) => {
@@ -1993,7 +2010,29 @@ document.addEventListener("DOMContentLoaded", function () {
             window.jetformDatepickerConfig.flatpickrInstances.clear();
             window.jetformDatepickerConfig.datepickerCreated = false;
         }
-    });
+
+        // Customise form (31192) only, per client request 2026-09: closing the
+        // popup without submitting shouldn't leave the previously-picked
+        // hotels/stops in place for next time - Departure Date and Number of
+        // Passengers already reset on their own, so this makes the Itinerary
+        // step consistent with them. See atgResetCustomizeItinerary() in
+        // tour-data-reader.js for why this needs its own reset (the popup's
+        // content isn't actually destroyed when hidden).
+        if (typeof window.atgResetCustomizeItinerary === 'function' && document.querySelector('form[data-form-id="31192"]')) {
+            window.atgResetCustomizeItinerary();
+        }
+
+        // Undo everything hidePopupChromeOnSuccess() applied for the compact
+        // success layout (min-height/width overrides, the width-cap markers,
+        // the overlay centering class) - see resetCompactPopupChrome() above
+        // for details. Also re-run defensively on the next "elementor/popup/show"
+        // in case this "hide" doesn't fire for the way the popup was closed.
+        resetCompactPopupChrome();
+    }
+    // See the comment above handleElementorPopupShow()'s listener registration
+    // for why this is attached to both document and window.
+    document.addEventListener("elementor/popup/hide", handleElementorPopupHide);
+    window.addEventListener("elementor/popup/hide", handleElementorPopupHide);
 
     // Initialize simple flatpickr for expected_departure field
     function initializeExpectedDepartureDatepicker() {
@@ -3153,13 +3192,23 @@ document.addEventListener("DOMContentLoaded", function () {
             `;
         }
 
-        // "Trip Length" vs "Trip Option": the customise form (31192) shows the
-        // itinerary description list alongside this figure (itineraryListHtml,
-        // built above), so "Trip Option" reads better there since it's no longer
-        // just a duration - client request, 2026-09. The fixed-itinerary forms
-        // (31190, escorted or footloose direct-book) show this figure alone with
-        // no description, so they keep "Trip Length".
-        const tripLengthLabel = itineraryTripLength ? 'Trip Option' : 'Trip Length';
+        // "Trip Length" vs "Trip Option": only the Footloose/Independent
+        // fixed-itinerary form (31190, non-escorted) gets "Trip Option" here -
+        // that row includes the trip description alongside the duration, so
+        // "Trip Option" reads better there (client request, 2026-09). The
+        // customise form (31192) keeps "Trip Length", since under Holiday
+        // Details it's just the summed nights with no description (client
+        // correction, 2026-09 - it was briefly "Trip Option" too, but the
+        // per-stop itinerary list (itineraryListHtml) is its own separate
+        // "Itinerary:" row below, not part of this one). Escorted fixed-trip
+        // bookings also keep "Trip Length". Detected via
+        // window.atg_tour_data.is_escorted (same flag used elsewhere in this
+        // file, e.g. line ~1653) rather than a form ID, since Escorted and
+        // Footloose/Independent share this same fixed-itinerary form/summary code.
+        const isEscortedTour = !!(window.atg_tour_data || {}).is_escorted;
+        const tripLengthLabel = (!isCustomizeForm && !isEscortedTour)
+            ? 'Trip Option'
+            : 'Trip Length';
 
         const summaryHtml = `
             <div class="summary-wrapper">
@@ -3401,6 +3450,57 @@ document.addEventListener("DOMContentLoaded", function () {
         // overlay), so capping that is enough - no repositioning needed.
         const dialogContent = formEl.closest('.dialog-widget-content');
         if (dialogContent) dialogContent.classList.add('atg-compact-popup');
+
+        // The overlay normally bottom-aligns the dialog (align-items: flex-end)
+        // to suit the full multi-step form; centre it vertically on screen too
+        // now that it's shrunk down to a short message. See the matching CSS
+        // rule in jetform-enhancement.css. Undone in the hide listener below.
+        const overlay = dialogContent && dialogContent.closest('.elementor-popup-modal');
+        if (overlay) overlay.classList.add('atg-compact-popup-overlay');
+
+        // The Elementor Container the form widget sits in (identified live as
+        // .elementor-element-1ea2ddc4, one of the "e-con-full" flex containers)
+        // is set to "Min Height: 81vh" in the editor - reserving room for the
+        // full multi-step form (Holiday Details/Itinerary/Passenger/Review).
+        // atg-compact-popup above only caps WIDTH, so with every other child
+        // hidden this container still forced itself to ~81% of the viewport's
+        // height, leaving the short one-line success message stranded near the
+        // top of a mostly-empty box - which is what actually made the
+        // "thank you" message look cut off/lost (client report, 2026-09), not
+        // an overflow/clipping issue. Overriding it back to its natural height
+        // here lets the popup shrink to fit the message, same as the width
+        // already does. Cleared again in the "elementor/popup/hide" listener
+        // below so the next time this popup opens fresh it's back to its
+        // normal full-form height.
+        const heightContainer = formEl.closest('.e-con-full') || (popup.querySelector('[class*="elementor-element-"][class*="e-con"]'));
+        if (heightContainer) heightContainer.style.setProperty('min-height', 'auto', 'important');
+
+        // The Elementor Containers wrapping the form (boxed layout, fixed
+        // pixel widths - e.g. elementor-element-1ea2ddc4 at 980px, the
+        // e-con-boxed "e-parent" above it at 1000px) keep their full width
+        // even once atg-compact-popup above caps the outer dialog down to
+        // 480px. The success message then inherited that ~980px width from
+        // its containers, overflowed sideways past the now-narrow dialog,
+        // and got clipped/scrolled instead of wrapping to fit - this, not
+        // the height, was the actual "thank you message cut off" bug
+        // (client report, 2026-09). Cap every Elementor container between
+        // the form and the dialog back to 100% so they shrink along with
+        // it; undone in the "elementor/popup/hide" listener below.
+        // Every element in this chain sits strictly between the form and the
+        // dialog boundary, so unconditionally capping all of them (rather
+        // than trying to pattern-match Elementor's various container class
+        // names, which turned out to miss one - the popup's own root
+        // ".elementor-31105" div - and left it stuck at 1000px) is the
+        // reliable way to make sure nothing along the way keeps its old
+        // fixed pixel width.
+        let widthNode = formEl.parentElement;
+        while (widthNode && widthNode !== dialogContent) {
+            widthNode.style.setProperty('width', '100%', 'important');
+            widthNode.style.setProperty('max-width', '100%', 'important');
+            widthNode.style.setProperty('flex', '0 1 auto', 'important');
+            widthNode.classList.add('atg-compact-popup-width-override');
+            widthNode = widthNode.parentElement;
+        }
     }
 
     if (window.jQuery) {

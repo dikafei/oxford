@@ -486,6 +486,43 @@ function buildAtgRouteMap() {
     atgSyncNextButtonVisibility();
 }
 
+/**
+ * Reset the customise form's Itinerary/route-map state back to nothing
+ * selected - called when the popup closes (see the "elementor/popup/hide"
+ * listener in jetform-enhancement.js) so that abandoning the form and
+ * reopening it starts fresh with the hotels/stops step, rather than the
+ * previously-picked stops (and their cached Hotel/Nights values) still
+ * being there. Without this, atgItinerarySelected/atgItineraryStopData
+ * (module-level state, never otherwise cleared) and the route map's
+ * "selected" button classes just sat there across opens, since the popup's
+ * DOM/content isn't destroyed when it's hidden - only the Departure Date and
+ * Number of Passengers fields happened to reset (they're plain form fields
+ * JetFormBuilder/Elementor rebuild fresh), so hotels were the odd one out.
+ *
+ * @return {Promise|void} Resolves once the repeater rows have been torn back
+ *                         down to none - callers don't have to await it.
+ */
+function atgResetCustomizeItinerary() {
+    if (atgItinerarySelected.size === 0 && atgItineraryStopData.size === 0) return;
+
+    atgItinerarySelected.clear();
+    atgItineraryStopData.clear();
+
+    document.querySelectorAll('form[data-form-id="31192"] .atg-route-map__stop.selected').forEach(function(stop) {
+        stop.classList.remove('selected');
+    });
+
+    atgSyncNextButtonVisibility();
+
+    // Queued the same way real clicks are (see atgToggleRouteStop()), so a
+    // reset that happens to land mid-rebuild doesn't interleave with it.
+    atgRebuildQueue = atgRebuildQueue.then(atgRebuildItineraryRows).catch(function(err) {
+        console.error('atg route map reset failed:', err);
+    });
+    return atgRebuildQueue;
+}
+window.atgResetCustomizeItinerary = atgResetCustomizeItinerary;
+
 function atgSyncNextButtonVisibility() {
     const itineraryField = document.querySelector('form[data-form-id="31192"] [data-field-name="Itinerary"]');
     const page = itineraryField ? itineraryField.closest('.jet-form-builder-page') : null;

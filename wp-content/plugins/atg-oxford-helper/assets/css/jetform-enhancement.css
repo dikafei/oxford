@@ -736,9 +736,28 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
    form size. Class is added by hidePopupChromeOnSuccess() in that same file.
    The popup's visible width comes from .dialog-widget-content, which is
    centred (margin: 0 auto) inside the full-viewport .elementor-popup-modal
-   overlay, so capping just this is enough - no repositioning needed. */
+   overlay, so capping just this is enough - no repositioning needed.
+   display:flex + the centering rules below keep the short message centred
+   inside the box instead of pinned to its top-left corner, and min-height
+   gives the box a bit of presence instead of shrinking to just the message's
+   own height. */
 .dialog-widget-content.atg-compact-popup {
     max-width: 480px !important;
     width: 90% !important;
     padding: 30px !important;
+    min-height: 400px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* The outer overlay (.elementor-popup-modal) normally aligns the dialog to
+   align-items: flex-end, so it sits low in the viewport - fine for the full
+   multi-step form, but it leaves the short, now-centred success box looking
+   off-centre on the screen. atg-compact-popup-overlay is added to the
+   overlay alongside atg-compact-popup (see hidePopupChromeOnSuccess() in
+   jetform-enhancement.js) so the whole box is vertically centred on screen
+   too, and removed again on popup close. */
+.elementor-popup-modal.atg-compact-popup-overlay {
+    align-items: center !important;
 }
