@@ -835,7 +835,7 @@ function populate_hotels(){
                     // Flag which hotel is the upgrade (client request,
                     // 2026-10): hotel records are named "Torre del Nera:
                     // upgrade" for the upgrade option. Show that as
-                    // "Torre del Nera (Upgrade)" and, when the same location
+                    // "Torre del Nera (upgrade option)" and, when the same location
                     // has an upgrade, tag the other one "(Standard)" so
                     // customers who don't remember which is which can tell.
                     // The label is part of the option value too, so it also
@@ -854,7 +854,7 @@ function populate_hotels(){
                     locationHotels.forEach(name => {
                         let label = name;
                         if (isUpgradeName(name)) {
-                            label = name.replace(/:\s*upgrade\s*$/i, '').trim() + ' (Upgrade)';
+                            label = name.replace(/:\s*upgrade\s*$/i, '').trim() + ' (upgrade option)';
                         } else if (locationHasUpgrade) {
                             label = name + ' (Standard)';
                         }

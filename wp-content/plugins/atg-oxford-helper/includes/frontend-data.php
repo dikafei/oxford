@@ -481,11 +481,22 @@ add_action('wp_footer', function() {
             }
             $hotel_details = array();
             $hotel_details[] = "Select hotel";
+            // Hotel records spell the same town differently (e.g. "Sarlat-la-Caneda"
+            // vs "Sarlat-la-Canéda"), which made the Customise form's route map and
+            // Location dropdown list that town twice (Classic Dordogne, client report
+            // 2026-10). Group by an accent/case/whitespace-folded key and reuse the
+            // first spelling seen, so every spelling counts as the same place.
+            $canonical_locations = array();
             foreach ($hotel_ids as $hotel_id) {
                 $hotel_name = get_post_meta($hotel_id, 'hotel_name', true);
                 $hotel_address = get_post_meta($hotel_id, 'hotel_address', true);
                 if ($hotel_name && $hotel_address) {
-                	$hotel_details[] = trim($hotel_name) . ' | ' . trim($hotel_address);
+                    $hotel_address = trim($hotel_address);
+                    $location_key = strtolower(preg_replace('/\s+/', ' ', remove_accents($hotel_address)));
+                    if (!isset($canonical_locations[$location_key])) {
+                        $canonical_locations[$location_key] = $hotel_address;
+                    }
+                	$hotel_details[] = trim($hotel_name) . ' | ' . $canonical_locations[$location_key];
                 }
             }
             echo json_encode($hotel_details);
