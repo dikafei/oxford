@@ -832,20 +832,36 @@ function populate_hotels(){
                     placeholder.textContent = "Select hotel";
                     hotelSelect2.appendChild(placeholder);
 
-                    const seenHotels = new Set();
+                    // Flag which hotel is the upgrade (client request,
+                    // 2026-10): hotel records are named "Torre del Nera:
+                    // upgrade" for the upgrade option. Show that as
+                    // "Torre del Nera (Upgrade)" and, when the same location
+                    // has an upgrade, tag the other one "(Standard)" so
+                    // customers who don't remember which is which can tell.
+                    // The label is part of the option value too, so it also
+                    // carries through to the review page and emails.
+                    const isUpgradeName = n => /:\s*upgrade\s*$/i.test(n);
+                    const locationHotels = [];
                     hotelData.forEach(hotel => {
                         let [a, b] = hotel.split("|");
                         if (!a || !b) return;
                         a = a.trim();
                         b = b.trim();
+                        if (b === selectedLocation && !locationHotels.includes(a)) locationHotels.push(a);
+                    });
+                    const locationHasUpgrade = locationHotels.some(isUpgradeName);
 
-                        if (b === selectedLocation && !seenHotels.has(a)) {
-                            seenHotels.add(a);
-                            const option = document.createElement('option');
-                            option.value = a;
-                            option.textContent = a;
-                            hotelSelect2.appendChild(option);
+                    locationHotels.forEach(name => {
+                        let label = name;
+                        if (isUpgradeName(name)) {
+                            label = name.replace(/:\s*upgrade\s*$/i, '').trim() + ' (Upgrade)';
+                        } else if (locationHasUpgrade) {
+                            label = name + ' (Standard)';
                         }
+                        const option = document.createElement('option');
+                        option.value = label;
+                        option.textContent = label;
+                        hotelSelect2.appendChild(option);
                     });
                     hotelSelect2.selectedIndex = 0;
                 });

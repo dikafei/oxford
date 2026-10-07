@@ -3139,7 +3139,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         const itineraryListHtml = itineraryRowsHtml
-            ? `<div class="summary-itinerary-list"><strong>Itinerary:</strong>${itineraryRowsHtml}</div>`
+            ? `<div class="summary-itinerary-list"><strong>Customised Itinerary:</strong>${itineraryRowsHtml}</div>`
             : '';
 
         // Only the customise form has itinerary rows to sum - other forms keep
@@ -3150,11 +3150,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const tripLengthText = itineraryTripLength
             ? itineraryTripLength
-            : (typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")
+            // Escorted tours have no per-option trip title (triptitle is just
+            // "Default Trip"), so show the tour's duration ("8 days") from the
+            // page's Duration row instead. Detected via is_escorted rather than
+            // "escorted" appearing in triptitle, which it never does (client
+            // report, 2026-10). Whitespace collapsed since the label renders
+            // as "8  days". Falls back to triptitle if the row isn't found.
+            : (((window.atg_tour_data || {}).is_escorted || (typeof values['triptitle'] === "string" && values['triptitle'].toLowerCase().includes("escorted")))
                 ? (
                     (() => {
                         const el = document.querySelector("div.trip_duration .jet-headline__second .jet-headline__label");
-                        return el && el.textContent ? el.textContent : (values['triptitle'] || 'N/A');
+                        const txt = el && el.textContent ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+                        return txt || values['triptitle'] || 'N/A';
                     })()
                 )
                 : (values['triptitle'] || 'N/A'));

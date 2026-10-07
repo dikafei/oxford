@@ -181,12 +181,24 @@ div.dialog-widget-content{
     overflow: scroll;
 }
 
+/* Escorted tour pages only (body.tour-escorted): no top margin on the
+   departure date select (client request, 2026-10). */
+body.tour-escorted #_departure_select,
+body.tour-escorted [id^="_departure_select"] {
+    margin-top: 0px !important;
+}
+
 /* pushed it a little bit up so it doesn't shows enough gap */
 .flatpickr-calendar {
     margin-top: -25px;
   }
 
-#full_address.jet-form-builder__field.textarea-field{
+/* The customise form (31192) renders this field with id "full_address_1"
+   rather than "full_address" (JetFormBuilder suffixes the id when the same
+   field name is already on the page), so match on the field name too or it
+   falls back to the default 2-row box there (client request, 2026-10). */
+#full_address.jet-form-builder__field.textarea-field,
+textarea[name="full_address"].jet-form-builder__field.textarea-field{
     min-height: 200px !important;
     resize: vertical;
 }

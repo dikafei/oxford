@@ -251,8 +251,8 @@ new ATG_Tour_Frontend_Data();
  * @param int $post_id Post ID
  * @return array List of ['start_date' => ..., 'end_date' => ...] rows.
  */
-function atg_get_route_open_date_ranges( $post_id ) {
-    $raw = get_post_meta( $post_id, '_departure', true );
+function atg_get_route_open_date_ranges( $post_id, $meta_key = '_departure' ) {
+    $raw = get_post_meta( $post_id, $meta_key, true );
 
     if ( empty( $raw ) ) {
         return array();
@@ -298,8 +298,8 @@ function atg_get_route_open_date_ranges( $post_id ) {
  * @return string HTML (uses <br> between lines) - empty string if the tour
  *                 has no upcoming open-date ranges configured.
  */
-function atg_format_upcoming_route_open_dates( $post_id ) {
-    $ranges = atg_get_route_open_date_ranges( $post_id );
+function atg_format_upcoming_route_open_dates( $post_id, $meta_key = '_departure' ) {
+    $ranges = atg_get_route_open_date_ranges( $post_id, $meta_key );
 
     if ( empty( $ranges ) ) {
         return '';
@@ -399,9 +399,67 @@ add_action( 'elementor/dynamic_tags/register', function( $dynamic_tags_manager )
         }
     }
 
+    // "Escorted Departure Dates (Upcoming)": same upcoming-only, sorted,
+    // dd-mm-yyyy to dd-mm-yyyy list, but read from the Escorted tours'
+    // "_departure_escorted" repeater, so the "Trip dates:" line on Escorted
+    // cards fills in automatically instead of relying on the hand-typed
+    // "infobox_escorted_departure" text field (client request, 2026-10).
+    if ( ! class_exists( 'ATG_Escorted_Departure_Dates_Tag' ) ) {
+        class ATG_Escorted_Departure_Dates_Tag extends \Elementor\Core\DynamicTags\Tag {
+
+            public function get_name() {
+                return 'atg-escorted-departure-dates';
+            }
+
+            public function get_title() {
+                return 'Escorted Departure Dates (Upcoming)';
+            }
+
+            public function get_group() {
+                return 'atg-tour-data';
+            }
+
+            public function get_categories() {
+                return array( \Elementor\Modules\DynamicTags\Module::TEXT_CATEGORY );
+            }
+
+            public function render() {
+                $post_id = get_the_ID();
+
+                if ( ! $post_id ) {
+                    return;
+                }
+
+                // phpcs:ignore WordPress.Security.EscapeOutput -- our own generated markup.
+                echo atg_format_upcoming_route_open_dates( $post_id, '_departure_escorted' );
+            }
+        }
+    }
+
     $dynamic_tags_manager->register_group( 'atg-tour-data', array( 'title' => 'ATG Tour Data' ) );
     $dynamic_tags_manager->register( new ATG_Route_Open_Dates_Tag() );
+    $dynamic_tags_manager->register( new ATG_Escorted_Departure_Dates_Tag() );
 } );
+
+// Hide the whole "Trip dates:" line on Escorted tour cards (Search Page Cards
+// listing template, container 6fd480c) when the tour has no upcoming
+// departure dates, instead of leaving the label sitting there with nothing
+// after it (client request, 2026-10). The container's own JetEngine
+// visibility condition (tour_type = Escorted) can't check a repeater, so this
+// runs alongside it via Elementor's should_render filter.
+add_filter( 'elementor/frontend/container/should_render', function( $should_render, $element = null ) {
+    // 6fd480c = Search Page Cards listing template, d7f7257 = Single Tour template.
+    if ( ! $should_render || ! is_object( $element ) || ! in_array( $element->get_id(), array( '6fd480c', 'd7f7257' ), true ) ) {
+        return $should_render;
+    }
+
+    $post_id = get_the_ID();
+    if ( $post_id && atg_format_upcoming_route_open_dates( $post_id, '_departure_escorted' ) === '' ) {
+        return false;
+    }
+
+    return $should_render;
+}, 10, 2 );
 
 add_action('wp_footer', function() {
     if (is_singular('tour')) {
@@ -744,12 +802,28 @@ function atg_render_booking_detail_boxes($fields) {
             . '</div>';
     }
     if ($itinerary_html !== '') {
-        $itinerary_html = '<div class="summary-itinerary-list"><strong>Itinerary:</strong>' . $itinerary_html . '</div>';
+        $itinerary_html = '<div class="summary-itinerary-list"><strong>Customised Itinerary:</strong>' . $itinerary_html . '</div>';
     }
 
     $trip_length = !empty($itinerary_rows)
         ? ($itinerary_total_nights . ' night' . ($itinerary_total_nights === 1 ? '' : 's'))
         : (isset($fields['triptitle']) ? $fields['triptitle'] : '');
+
+    // Escorted tours have no per-option trip title (triptitle is just
+    // "Default Trip"), so use the tour's own duration ("8 days", from the
+    // "_duration-time" meta) as Trip Length - same as the review page
+    // (generateCompleteSummary() in jetform-enhancement.js) - which also lets
+    // atg_compute_travel_dates() below work out the end date (client
+    // request, 2026-10).
+    if (empty($itinerary_rows) && $post_id) {
+        $tour_type_data = maybe_unserialize(get_post_meta($post_id, 'tour_type', true));
+        if (is_array($tour_type_data) && isset($tour_type_data['Escorted']) && $tour_type_data['Escorted'] === 'true') {
+            $duration_days = intval(get_post_meta($post_id, '_duration-time', true));
+            if ($duration_days > 0) {
+                $trip_length = $duration_days . ' day' . ($duration_days === 1 ? '' : 's');
+            }
+        }
+    }
     $trip_selected = $post_id ? get_the_title($post_id) : '';
     if (empty($trip_selected)) {
         $trip_selected = isset($fields['triptitle']) ? $fields['triptitle'] : (!empty($itinerary_rows) ? 'Custom Itinerary Request' : '');
@@ -1068,13 +1142,25 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
     }
     if ( $itinerary_inner !== '' ) {
         $itinerary_inner = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid ' . ATG_EMAIL_BORDER . ';">'
-            . '<div style="font-size:13px;font-weight:700;color:' . ATG_EMAIL_DARK . ';margin-bottom:6px;">Itinerary</div>'
+            . '<div style="font-size:13px;font-weight:700;color:' . ATG_EMAIL_DARK . ';margin-bottom:6px;">Customised Itinerary</div>'
             . $itinerary_inner . '</div>';
     }
 
     $trip_length = ! empty( $itinerary_rows )
         ? ( $itinerary_total_nights . ' night' . ( $itinerary_total_nights === 1 ? '' : 's' ) )
         : ( isset( $fields['triptitle'] ) ? $fields['triptitle'] : '' );
+
+    // Escorted tours: use the tour's duration ("8 days") as Trip Length, same
+    // as the review page / thank-you page (see atg_render_booking_detail_boxes()).
+    if ( empty( $itinerary_rows ) && $post_id ) {
+        $tour_type_data = maybe_unserialize( get_post_meta( $post_id, 'tour_type', true ) );
+        if ( is_array( $tour_type_data ) && isset( $tour_type_data['Escorted'] ) && $tour_type_data['Escorted'] === 'true' ) {
+            $duration_days = intval( get_post_meta( $post_id, '_duration-time', true ) );
+            if ( $duration_days > 0 ) {
+                $trip_length = $duration_days . ' day' . ( $duration_days === 1 ? '' : 's' );
+            }
+        }
+    }
     $trip_selected = $post_id ? get_the_title( $post_id ) : '';
     if ( empty( $trip_selected ) ) {
         $trip_selected = isset( $fields['triptitle'] ) ? $fields['triptitle'] : ( ! empty( $itinerary_rows ) ? 'Custom Itinerary Request' : '' );
@@ -1909,11 +1995,44 @@ add_action( 'jet-form-builder/form-record/save-record-action', function( $record
                 'field_name'  => sanitize_text_field( $key ),
                 'field_type'  => 'computed',
                 'field_value' => $value,
+                // JetFormBuilder reads this column back as JSON when a Stripe
+                // payment returns to the site (Form_Record\Tools::apply_context()
+                // -> Parser_Context::set_field_settings(), which is typed to
+                // `array`). A NULL here decodes to null and crashed the
+                // Footloose/Escorted thank-you pages with a fatal TypeError
+                // (2026-10). "{}" is what JetFormBuilder itself saves for
+                // fields with no special settings. Fixing it here at the
+                // source means it doesn't depend on patching the vendor
+                // plugin, which an update wipes out.
+                'field_attrs' => '{}',
             ),
-            array( '%d', '%s', '%s', '%s' )
+            array( '%d', '%s', '%s', '%s', '%s' )
         );
     }
 }, 5, 2 );
+
+/**
+ * One-off repair for records saved before the fix above: give every record
+ * field with an empty/NULL field_attrs a "{}" so the Stripe return flow can
+ * rebuild form context from old submissions too. Runs once (flagged via an
+ * option), on the first request after deploy.
+ */
+add_action( 'init', function() {
+    if ( get_option( 'atg_field_attrs_repaired_v1' ) ) {
+        return;
+    }
+
+    global $wpdb;
+    $fields_table = $wpdb->prefix . 'jet_fb_records_fields';
+
+    // Only proceed if the table exists (JetFormBuilder records enabled).
+    if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $fields_table ) ) !== $fields_table ) {
+        return;
+    }
+
+    $wpdb->query( "UPDATE $fields_table SET field_attrs = '{}' WHERE field_attrs IS NULL OR field_attrs = ''" );
+    update_option( 'atg_field_attrs_repaired_v1', 1, false );
+} );
 
 /**
  * Sends confirmation emails for form 31192 (customise-itinerary), mirroring
