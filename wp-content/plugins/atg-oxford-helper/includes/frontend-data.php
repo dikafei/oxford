@@ -505,6 +505,114 @@ add_action('wp_footer', function() {
     }
 });
 
+/**
+ * Safety net for the "Customise my Itinerary" accordion (Independent/Footloose
+ * tours). Its content is Elementor template 27999 (intro text + "Click here to
+ * customise" button), and every so often that template renders as an empty
+ * shell - only the outer container, none of the text or button inside it -
+ * until the template is re-saved or Elementor's cache is cleared (reported
+ * 2026-10, several times). Rather than rely on that, this prints the same
+ * text/button (read from the template's own saved data, so edits to the
+ * template still carry through) into a hidden <template> in the footer, and a
+ * small script puts it into the accordion only if the real content turns out
+ * to be missing. The markup reuses the template's own element ids/classes so
+ * its saved CSS (post-27999.css) styles it identically; the button uses the
+ * standard Elementor "open popup" link for popup 31105.
+ */
+// Normally popup 31105 (the customise form) only gets registered on the page
+// by the real "Click here to customise" button's popup link - which doesn't
+// exist when the accordion template renders empty, so the fallback button
+// below would have nothing to open. Register the popup for Independent tours
+// ourselves, the same way Elementor Pro's own popup link does.
+add_action( 'wp', function() {
+    if ( ! is_singular( 'tour' ) || ! class_exists( '\ElementorPro\Modules\Popup\Module' ) ) {
+        return;
+    }
+    $tour_type = maybe_unserialize( get_post_meta( get_the_ID(), 'tour_type', true ) );
+    if ( is_array( $tour_type ) && isset( $tour_type['Independent'] ) && $tour_type['Independent'] === 'true' ) {
+        \ElementorPro\Modules\Popup\Module::add_popup_to_location( 31105 );
+    }
+} );
+
+add_action( 'wp_footer', function() {
+    if ( ! is_singular( 'tour' ) ) {
+        return;
+    }
+
+    $raw = get_post_meta( 27999, '_elementor_data', true );
+    $data = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+    if ( empty( $data ) || ! is_array( $data ) ) {
+        return;
+    }
+
+    // Walk the template's saved element tree for the text-editor and button widgets.
+    $text_widget = null;
+    $button_widget = null;
+    $walk = function( $elements ) use ( &$walk, &$text_widget, &$button_widget ) {
+        foreach ( (array) $elements as $el ) {
+            if ( ! is_array( $el ) ) {
+                continue;
+            }
+            if ( ( $el['widgetType'] ?? '' ) === 'text-editor' && ! $text_widget ) {
+                $text_widget = $el;
+            }
+            if ( ( $el['widgetType'] ?? '' ) === 'button' && ! $button_widget ) {
+                $button_widget = $el;
+            }
+            if ( ! empty( $el['elements'] ) ) {
+                $walk( $el['elements'] );
+            }
+        }
+    };
+    $walk( $data );
+
+    if ( ! $text_widget || ! $button_widget ) {
+        return;
+    }
+
+    $text_html   = wp_kses_post( $text_widget['settings']['editor'] ?? '' );
+    $button_text = esc_html( $button_widget['settings']['text'] ?? 'Click here to customise' );
+    $popup_href  = '#elementor-action%3Aaction%3Dpopup%3Aopen%26settings%3D' . rawurlencode( base64_encode( wp_json_encode( array( 'id' => '31105', 'toggle' => false ) ) ) );
+    $text_id     = esc_attr( $text_widget['id'] );
+    $button_id   = esc_attr( $button_widget['id'] );
+    $root_id     = esc_attr( $data[0]['id'] ?? '' );
+
+    // Elementor's own markup for the two child containers + widgets.
+    echo '<template id="atg-customise-accordion-fallback">'
+        . '<div class="elementor-element elementor-element-' . $root_id . ' e-con-full e-flex e-con e-child atg-customise-fallback" style="width:100%;align-items:center;gap:30px">'
+        . '<div class="elementor-element e-con-full e-flex e-con e-child" style="flex:1 1 0;min-width:0;width:auto">'
+        . '<div class="elementor-element elementor-element-' . $text_id . ' elementor-widget elementor-widget-text-editor"><div class="elementor-widget-container">' . $text_html . '</div></div>'
+        . '</div>'
+        . '<div class="elementor-element e-con-full e-flex e-con e-child" style="flex:0 0 auto;width:auto">'
+        . '<div class="elementor-element elementor-element-' . $button_id . ' elementor-widget elementor-widget-button"><div class="elementor-widget-container"><div class="elementor-button-wrapper">'
+        . '<a class="elementor-button elementor-button-link elementor-size-sm" href="' . esc_attr( $popup_href ) . '"><span class="elementor-button-content-wrapper"><span class="elementor-button-text">' . $button_text . '</span></span></a>'
+        . '</div></div></div>'
+        . '</div>'
+        . '</div></template>';
+
+    ?>
+    <script>
+    (function() {
+        function atgFixCustomiseAccordion() {
+            var tpl = document.querySelector('.elementor-27999');
+            var fallback = document.getElementById('atg-customise-accordion-fallback');
+            if (!tpl || !fallback) return;
+            // Real content present? (the template's own button/text widget)
+            if (tpl.querySelector('.elementor-widget-button, .elementor-widget-text-editor')) return;
+            var inner = tpl.querySelector('.e-con-inner') || tpl;
+            inner.appendChild(fallback.content.cloneNode(true));
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', atgFixCustomiseAccordion);
+        } else {
+            atgFixCustomiseAccordion();
+        }
+        window.addEventListener('load', function() { setTimeout(atgFixCustomiseAccordion, 300); });
+    })();
+    </script>
+    <?php
+} );
+
 // moving code from child theme to here
 
 /**
@@ -826,15 +934,22 @@ function atg_render_booking_detail_boxes($fields) {
     // (generateCompleteSummary() in jetform-enhancement.js) - which also lets
     // atg_compute_travel_dates() below work out the end date (client
     // request, 2026-10).
+    $is_escorted_tour = false;
     if (empty($itinerary_rows) && $post_id) {
         $tour_type_data = maybe_unserialize(get_post_meta($post_id, 'tour_type', true));
         if (is_array($tour_type_data) && isset($tour_type_data['Escorted']) && $tour_type_data['Escorted'] === 'true') {
+            $is_escorted_tour = true;
             $duration_days = intval(get_post_meta($post_id, '_duration-time', true));
             if ($duration_days > 0) {
                 $trip_length = $duration_days . ' day' . ($duration_days === 1 ? '' : 's');
             }
         }
     }
+    // "Trip Option" instead of "Trip Length" for Footloose/Independent
+    // bookings only (that row includes the trip description as well as the
+    // duration) - Escorted and Customise keep "Trip Length", same as the
+    // review page (client request, 2026-10).
+    $trip_length_label = (empty($itinerary_rows) && !$is_escorted_tour) ? 'Trip Option' : 'Trip Length';
     $trip_selected = $post_id ? get_the_title($post_id) : '';
     if (empty($trip_selected)) {
         $trip_selected = isset($fields['triptitle']) ? $fields['triptitle'] : (!empty($itinerary_rows) ? 'Custom Itinerary Request' : '');
@@ -958,7 +1073,7 @@ function atg_render_booking_detail_boxes($fields) {
                 <div class="summary-container">
                     <div class="summary-title">Holiday Details</div>
                     <div class="summary-trip-selected"><strong>Trip Selected:</strong> ' . esc_html($trip_selected) . '</div>
-                    <div class="summary-trip-length"><strong>Trip Length:</strong> ' . esc_html($trip_length) . '</div>
+                    <div class="summary-trip-length"><strong>' . $trip_length_label . ':</strong> ' . esc_html($trip_length) . '</div>
                     <div class="summary-departure-date"><strong>Travel Dates:</strong> ' . $departure . '</div>
                     ' . $itinerary_html . '
                 </div>
@@ -997,7 +1112,7 @@ function atg_render_booking_detail_boxes($fields) {
         <div class="summary-closing-note">
             <div class="summary-container">
                 <p>' . nl2br(esc_html($note_message)) . '</p>
-                <p><strong>' . esc_html($note_closing_line) . '</strong></p>
+                <p>' . esc_html($note_closing_line) . '</p>
                 <p><strong>' . esc_html($team_name) . '</strong></p>
                 <p><strong>Tel: ' . esc_html($footer_phone) . '</strong></p>
                 <p><strong>Email: ' . esc_html($footer_email) . '</strong></p>
@@ -1163,9 +1278,11 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
 
     // Escorted tours: use the tour's duration ("8 days") as Trip Length, same
     // as the review page / thank-you page (see atg_render_booking_detail_boxes()).
+    $is_escorted_tour = false;
     if ( empty( $itinerary_rows ) && $post_id ) {
         $tour_type_data = maybe_unserialize( get_post_meta( $post_id, 'tour_type', true ) );
         if ( is_array( $tour_type_data ) && isset( $tour_type_data['Escorted'] ) && $tour_type_data['Escorted'] === 'true' ) {
+            $is_escorted_tour = true;
             $duration_days = intval( get_post_meta( $post_id, '_duration-time', true ) );
             if ( $duration_days > 0 ) {
                 $trip_length = $duration_days . ' day' . ( $duration_days === 1 ? '' : 's' );
@@ -1184,7 +1301,9 @@ function atg_render_booking_detail_boxes_email( $fields, $show_pricing = true ) 
     $departure = esc_html( $travel_dates['range'] );
 
     $holiday_rows = atg_email_row( 'Trip Selected', esc_html( $trip_selected ) )
-        . atg_email_row( 'Trip Length', esc_html( $trip_length ) )
+        // "Trip Option" for Footloose/Independent only; Escorted and Customise
+        // keep "Trip Length" (client request, 2026-10).
+        . atg_email_row( ( empty( $itinerary_rows ) && ! $is_escorted_tour ) ? 'Trip Option' : 'Trip Length', esc_html( $trip_length ) )
         . atg_email_row( 'Travel Dates', $departure, $itinerary_inner === '' )
         . $itinerary_inner;
 
@@ -1371,6 +1490,28 @@ function atg_render_staff_only_booking_info_email( $fields, $ref = '' ) {
  *                             atg_render_booking_detail_boxes_email().
  * @return string
  */
+/**
+ * The logo URL saved in Settings > ATG Booking Settings defaults to the old
+ * atg-oxford.co.uk address, which doesn't load on this site (the thank-you
+ * page banner and confirmation emails showed a broken image - client report,
+ * 2026-10). If the URL points at any site's /wp-content/uploads/ folder,
+ * rebuild it against THIS site's uploads folder so it works on staging and on
+ * the live domain alike. Anything else is returned untouched.
+ *
+ * @param string $url Saved logo URL.
+ * @return string URL to use.
+ */
+function atg_resolve_logo_url( $url ) {
+    if ( empty( $url ) ) {
+        return $url;
+    }
+    if ( preg_match( '#/wp-content/uploads/(.+)$#', $url, $m ) ) {
+        $uploads = wp_upload_dir();
+        return trailingslashit( $uploads['baseurl'] ) . $m[1];
+    }
+    return $url;
+}
+
 function atg_build_confirmation_email_content( $greeting, $headline, $trip_name, $fields, $is_internal = false, $ref = '', $show_pricing = true ) {
     $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
     $note_message = isset( $settings['atg_booking_note_message'] ) ? $settings['atg_booking_note_message'] : '';
@@ -1412,7 +1553,7 @@ function atg_build_confirmation_email_content( $greeting, $headline, $trip_name,
  */
 function atg_build_confirmation_email( $inner_html, $preheader = '' ) {
     $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
-    $logo_url = isset( $settings['atg_logo_url'] ) ? esc_url( $settings['atg_logo_url'] ) : '';
+    $logo_url = isset( $settings['atg_logo_url'] ) ? esc_url( atg_resolve_logo_url( $settings['atg_logo_url'] ) ) : '';
     $team_name = isset( $settings['atg_footer_team_name'] ) ? esc_html( $settings['atg_footer_team_name'] ) : 'ATG Reservations';
     $footer_phone = isset( $settings['atg_footer_phone'] ) ? esc_html( $settings['atg_footer_phone'] ) : '';
     $footer_email = isset( $settings['atg_footer_email'] ) ? esc_html( $settings['atg_footer_email'] ) : '';
@@ -1493,7 +1634,7 @@ function booking_summary_shortcode() {
     // Logo, team name, phone, and contact email are editable under Settings > ATG
     // Booking Settings instead of being hardcoded in this file.
     $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
-    $logo_url = isset($settings['atg_logo_url']) ? esc_url($settings['atg_logo_url']) : '';
+    $logo_url = isset($settings['atg_logo_url']) ? esc_url(atg_resolve_logo_url($settings['atg_logo_url'])) : '';
     $team_name = isset($settings['atg_footer_team_name']) ? esc_html($settings['atg_footer_team_name']) : 'ATG Reservations';
     $footer_phone = isset($settings['atg_footer_phone']) ? esc_html($settings['atg_footer_phone']) : '';
     $footer_email = isset($settings['atg_footer_email']) ? esc_html($settings['atg_footer_email']) : '';
@@ -1866,7 +2007,10 @@ function get_jetformbuilder_no_notification_records_by_email($form_id, $email) {
             }
         }
         $record['form_fields'] = $submission_data;
-        if(isset($record['form_fields']['email']) && $record['form_fields']['email'] == $email && !isset($record['form_fields']['email_notification'])){
+        if(isset($record['form_fields']['email']) && $record['form_fields']['email'] == $email && ( ! isset($record['form_fields']['email_notification']) || $record['form_fields']['email_notification'] !== 'yes' ) ){
+            // NB: form 31190 also has its own (empty) checkbox field called "email_notification"
+            // which newer JetFormBuilder saves as "[]" on every record - only our own "yes"
+            // marker means "already emailed".
             $all_submissions[] = $record;
         }
     }
@@ -1981,7 +2125,10 @@ add_action( 'jet-form-builder/form-record/save-record-action', function( $record
     ) );
     $already_saved = array_flip( $already_saved );
 
-    $skip_keys = array( '__form_id', '__refer', '__is_ajax', 'action', '_wp_http_referer' );
+    // 'email_notification' is the "already emailed" marker booking_summary_shortcode()
+    // writes itself - if the form also posts a field of that name, backfilling it
+    // here would make every new booking look already-emailed (no emails sent).
+    $skip_keys = array( '__form_id', '__refer', '__is_ajax', 'action', '_wp_http_referer', 'email_notification' );
 
     foreach ( $_POST as $key => $value ) {
         if (
@@ -2043,6 +2190,19 @@ add_action( 'init', function() {
 
     $wpdb->query( "UPDATE $fields_table SET field_attrs = '{}' WHERE field_attrs IS NULL OR field_attrs = ''" );
     update_option( 'atg_field_attrs_repaired_v1', 1, false );
+} );
+
+// One-off: remove the bogus email_notification rows the backfill created
+// (value "email_notification", not the "yes" the real sender writes) so those
+// recent bookings are emailed when their thank-you page is next viewed.
+add_action( 'init', function() {
+    if ( get_option( 'atg_email_notification_repaired_v2' ) ) {
+        return;
+    }
+    global $wpdb;
+    $fields_table = $wpdb->prefix . 'jet_fb_records_fields';
+    $wpdb->query( "DELETE FROM $fields_table WHERE field_name = 'email_notification' AND field_value = 'email_notification'" );
+    update_option( 'atg_email_notification_repaired_v2', 1, false );
 } );
 
 /**
