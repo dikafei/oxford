@@ -1102,7 +1102,7 @@ function atg_render_booking_detail_boxes($fields) {
     // Note message, closing line, team name, phone, and email are all editable
     // under Settings > ATG Booking Settings instead of being hardcoded here.
     $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
-    $note_message = isset($settings['atg_booking_note_message']) ? $settings['atg_booking_note_message'] : '';
+    $note_message = isset($settings['atg_booking_note_message']) ? str_replace('if you have and questions', 'if you have any questions', $settings['atg_booking_note_message']) : '';
     $note_closing_line = isset($settings['atg_booking_note_closing_line']) ? $settings['atg_booking_note_closing_line'] : '';
     $team_name = isset($settings['atg_footer_team_name']) ? $settings['atg_footer_team_name'] : 'ATG Reservations';
     $footer_phone = isset($settings['atg_footer_phone']) ? $settings['atg_footer_phone'] : '';
@@ -1512,10 +1512,15 @@ function atg_resolve_logo_url( $url ) {
     return $url;
 }
 
-function atg_build_confirmation_email_content( $greeting, $headline, $trip_name, $fields, $is_internal = false, $ref = '', $show_pricing = true ) {
+function atg_build_confirmation_email_content( $greeting, $headline, $trip_name, $fields, $is_internal = false, $ref = '', $show_pricing = true, $custom_note = null ) {
     $settings = function_exists( 'atg_get_booking_settings' ) ? atg_get_booking_settings() : array();
-    $note_message = isset( $settings['atg_booking_note_message'] ) ? $settings['atg_booking_note_message'] : '';
+    $note_message = isset( $settings['atg_booking_note_message'] ) ? str_replace( 'if you have and questions', 'if you have any questions', $settings['atg_booking_note_message'] ) : '';
     $note_closing_line = isset( $settings['atg_booking_note_closing_line'] ) ? $settings['atg_booking_note_closing_line'] : '';
+    if ( $custom_note !== null ) {
+        // Customise-itinerary enquiries (31192) have their own wording.
+        $note_message = $custom_note;
+        $note_closing_line = '';
+    }
 
     $html = '<p style="margin:0 0 16px;font-size:15px;">' . $greeting . '</p>'
         . '<h2 style="margin:0 0 6px;font-size:18px;color:' . ATG_EMAIL_DARK . ';font-weight:700;line-height:1.4;">' . $headline . '</h2>'
@@ -2280,17 +2285,18 @@ add_action( 'jet-form-builder/form-record/save-record-action', function( $record
     // for submitting the information. We will get in touch with you with the
     // customised plan shortly."). Beautified, inline-styled HTML email - see
     // atg_build_confirmation_email()/atg_build_confirmation_email_content().
-    $email_headline = 'Thank you for submitting your customised itinerary request &ndash; our Reservations Team will be in touch shortly with a bespoke quote.';
+    $email_headline = 'Thank you for your booking request.';
+    $custom_note = 'Our Reservations team will now prepare a quotation for you based on your requested itinerary and will be in touch with you shortly. In the meantime if you have any questions relating to your booking request please do not hesitate to contact us.';
 
     // This form has no pricing (customer builds their own itinerary and gets
     // a bespoke quote back), so the Subtotal row is omitted from Room Details.
     $email_content_customer = atg_build_confirmation_email(
-        atg_build_confirmation_email_content( $greeting, $email_headline, $tour_name, $fields, false, '', false ),
+        atg_build_confirmation_email_content( $greeting, $email_headline, $tour_name, $fields, false, '', false, $custom_note ),
         wp_strip_all_tags( $email_headline )
     );
 
     $email_content_internal = atg_build_confirmation_email(
-        atg_build_confirmation_email_content( $greeting, $email_headline, $tour_name, $fields, true, $ref, false ),
+        atg_build_confirmation_email_content( $greeting, $email_headline, $tour_name, $fields, true, $ref, false, $custom_note ),
         wp_strip_all_tags( $email_headline )
     );
 

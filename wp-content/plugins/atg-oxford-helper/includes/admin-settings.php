@@ -30,7 +30,7 @@ function atg_booking_settings_defaults() {
         'atg_footer_phone'                       => '+44 (0)1865 315678',
         'atg_footer_email'                       => 'trip-enquiry@atg-oxford.com',
         'atg_internal_notification_emails'       => 'trip-enquiry@atg-oxford.com, jessicaj@atg-oxford.com',
-        'atg_booking_note_message'               => 'On occasions it may take a few days before we receive all the responses required (from hotels etc) to confirm a booking. As soon as all the arrangements are in place, our Reservations Team look forward to sending you our Confirmation. In the meantime if you have and questions relating to your booking please do not hesitate to contact us.',
+        'atg_booking_note_message'               => 'On occasions it may take a few days before we receive all the responses required (from hotels etc) to confirm a booking. As soon as all the arrangements are in place, our Reservations Team look forward to sending you our Confirmation. In the meantime if you have any questions relating to your booking please do not hesitate to contact us.',
         'atg_booking_note_closing_line'          => 'You have chosen an excellent trip and we very much look forward to welcoming you.',
     );
 }

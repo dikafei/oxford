@@ -754,7 +754,7 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
    gives the box a bit of presence instead of shrinking to just the message's
    own height. */
 .dialog-widget-content.atg-compact-popup {
-    max-width: 480px !important;
+    max-width: 580px !important;
     width: 90% !important;
     padding: 30px !important;
     min-height: 400px !important;

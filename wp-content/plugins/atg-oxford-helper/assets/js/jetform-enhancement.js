@@ -101,17 +101,26 @@ document.addEventListener('change', function(e) {
 // form (31192), which doesn't take payment - client request, 2026-09.
 // Overridden here (like the review page title above) rather than editing the
 // block, so this ships with the plugin files with no separate WP admin edit.
+// Applied to EVERY form on the page except 31192 (Independent tour pages carry
+// both popups, and 31192 can come first in the DOM), and re-run when popups
+// open or forms are injected later.
+function atgRelabelSubmitButtons() {
+    document.querySelectorAll('form.jet-form-builder').forEach(function(form) {
+        if (form.dataset.formId === '31192') {
+            return;
+        }
+        form.querySelectorAll('.jet-form-builder__submit').forEach(function(submitBtn) {
+            if (submitBtn.textContent.replace(/\s+/g, ' ').trim() === 'Send Enquiry') {
+                submitBtn.textContent = 'Pay Deposit';
+            }
+        });
+    });
+}
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form.jet-form-builder');
-    if (!form || form.dataset.formId === '31192') {
-        return;
-    }
-
-    const submitBtn = form.querySelector('.jet-form-builder__submit');
-    if (submitBtn && submitBtn.textContent.replace(/\s+/g, ' ').trim() === 'Send Enquiry') {
-        submitBtn.textContent = 'Pay Deposit';
-    }
+    atgRelabelSubmitButtons();
+    new MutationObserver(atgRelabelSubmitButtons).observe(document.body, { childList: true, subtree: true });
 });
+window.addEventListener('elementor/popup/show', atgRelabelSubmitButtons);
 
 // Format any date-ish string as dd/mm/yyyy for display. Handles "2025-09-18",
 // "2025-09-18T00:00", and already-formatted "18/09/2025" (passthrough).
@@ -1383,7 +1392,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const titleElement = document.querySelector('.atg-for-selectroom');
         const hiddenField = document.querySelector('input[name="triptitle"]');
         if (hiddenField && buttonId !== null) {
-            const formattedTitlen = formatTitleText(buttonId);
+            // Full trip option name (e.g. "5 Day Itinerary – A taste of the area...")
+            // for the review/thank-you pages and emails; the popup heading below
+            // still uses the short formatTitleText() version.
+            const formattedTitlen = String(buttonId).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
 
             hiddenField.value = formattedTitlen;
             // console.log("Set hidden field value:", formattedTitlen);
@@ -3520,6 +3532,19 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 });
                 hidePopupChromeOnSuccess(formEl);
+
+                // Client-supplied thank-you wording for the customise form.
+                const setThankYou = function() {
+                    const msg = formEl.querySelector('.jet-form-builder-message--success');
+                    if (!msg || msg.dataset.atgThanks) return;
+                    msg.dataset.atgThanks = '1';
+                    msg.innerHTML =
+                        '<p style="margin:0 0 14px;"><strong>Thank you for your booking request.</strong></p>' +
+                        '<p style="margin:0 0 14px;">Our Reservations team will now prepare a quotation for you based on your requested itinerary and will be in touch with you shortly. In the meantime if you have any questions relating to your booking request please do not hesitate to contact us.</p>' +
+                        '<p style="margin:0;"><strong>ATG Reservations</strong><br>Tel: +44 (0)1865 315678<br>Email: <a href="mailto:trip-enquiry@atg-oxford.com" style="color:inherit;white-space:nowrap;">trip-enquiry@atg-oxford.com</a></p>';
+                };
+                setThankYou();
+                [100, 400, 1000].forEach(function(ms) { setTimeout(setThankYou, ms); });
             }
         });
     }
