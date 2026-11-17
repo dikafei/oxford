@@ -855,9 +855,9 @@ function populate_hotels(){
                         let label = name;
                         if (isUpgradeName(name)) {
                             label = name.replace(/:\s*upgrade\s*$/i, '').trim() + ' (upgrade option)';
-                        } else if (locationHasUpgrade) {
-                            label = name + ' (Standard)';
                         }
+                        // The standard hotel stays as its plain name - it isn't
+                        // labelled "standard" anywhere else on the site (client, 2026-11).
                         const option = document.createElement('option');
                         option.value = label;
                         option.textContent = label;

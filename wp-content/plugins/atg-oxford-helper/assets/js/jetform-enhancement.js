@@ -2952,13 +2952,12 @@ document.addEventListener("DOMContentLoaded", function () {
     ];
 
     function ensureSubmitButtonGatedOnRequiredCheckboxes() {
-        const form = document.querySelector('form.jet-form-builder');
-        // Only the deposit-taking form (31190) has these checkboxes; the
-        // Customise form (31192) has neither them nor a "Pay Deposit" button.
-        if (!form || form.dataset.formId === '31192') {
-            return;
-        }
+        // Both forms (31190 booking and 31192 customise) carry these checkboxes,
+        // and a page can hold both popups, so gate every form on the page.
+        document.querySelectorAll('form.jet-form-builder').forEach(gateFormSubmitButton);
+    }
 
+    function gateFormSubmitButton(form) {
         const submitBtn = form.querySelector('.jet-form-builder__submit');
         if (!submitBtn) {
             return;
@@ -2997,6 +2996,20 @@ document.addEventListener("DOMContentLoaded", function () {
             ensureSubmitButtonGatedOnRequiredCheckboxes();
         }
     });
+
+    // The Customise form has no summary-generation tick to piggyback on, so also
+    // apply the gate as soon as the popup opens / the form is injected, and
+    // after any page navigation inside the form (Next/Back).
+    window.addEventListener('elementor/popup/show', function() {
+        ensureSubmitButtonGatedOnRequiredCheckboxes();
+        setTimeout(ensureSubmitButtonGatedOnRequiredCheckboxes, 500);
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target.closest && e.target.closest('form.jet-form-builder')) {
+            setTimeout(ensureSubmitButtonGatedOnRequiredCheckboxes, 300);
+        }
+    });
+    document.addEventListener('DOMContentLoaded', ensureSubmitButtonGatedOnRequiredCheckboxes);
 
     // ================= SUMMARY GENERATOR ===================
     function generateCompleteSummary() {
