@@ -496,7 +496,20 @@ add_action('wp_footer', function() {
                     if (!isset($canonical_locations[$location_key])) {
                         $canonical_locations[$location_key] = $hotel_address;
                     }
-                	$hotel_details[] = trim($hotel_name) . ' | ' . $canonical_locations[$location_key];
+                    $clean_name = trim($hotel_name);
+                    // Primary signal for "upgrade hotel": the Upgrade checkbox on the
+                    // hotel post (meta "standar_upgrade"). It's passed to the form
+                    // as the same ": upgrade" name suffix the old naming convention
+                    // used, which tour-data-reader.js turns into "(upgrade option)",
+                    // so hotels still named "X: upgrade" keep working as a fallback.
+                    $upgrade_meta = maybe_unserialize(get_post_meta($hotel_id, 'standar_upgrade', true));
+                    $is_upgrade_tagged = is_array($upgrade_meta)
+                        ? (isset($upgrade_meta['Upgrade']) && $upgrade_meta['Upgrade'] === 'true')
+                        : (is_string($upgrade_meta) && strtolower(trim($upgrade_meta)) === 'upgrade');
+                    if ($is_upgrade_tagged && !preg_match('/:\s*upgrade\s*$/i', $clean_name)) {
+                        $clean_name .= ': upgrade';
+                    }
+                    $hotel_details[] = $clean_name . ' | ' . $canonical_locations[$location_key];
                 }
             }
             echo json_encode($hotel_details);

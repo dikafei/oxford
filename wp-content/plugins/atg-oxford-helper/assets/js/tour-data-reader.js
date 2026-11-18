@@ -853,8 +853,12 @@ function populate_hotels(){
 
                     locationHotels.forEach(name => {
                         let label = name;
-                        if (isUpgradeName(name)) {
+                        // A location with a single hotel has no choice to flag, so
+                        // an upgrade-tagged hotel on its own keeps its plain name.
+                        if (isUpgradeName(name) && locationHotels.length > 1) {
                             label = name.replace(/:\s*upgrade\s*$/i, '').trim() + ' (upgrade option)';
+                        } else if (isUpgradeName(name)) {
+                            label = name.replace(/:\s*upgrade\s*$/i, '').trim();
                         }
                         // The standard hotel stays as its plain name - it isn't
                         // labelled "standard" anywhere else on the site (client, 2026-11).
