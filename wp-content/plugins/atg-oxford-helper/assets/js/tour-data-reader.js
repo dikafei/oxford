@@ -342,7 +342,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // first insertion (likely an entrance animation), which would silently
     // drop any listeners attached directly to those buttons.
     document.addEventListener('click', function(e) {
-        const stop = e.target.closest('form[data-form-id="31192"] .atg-route-map__stop');
+        const stop = e.target.closest('form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop');
         if (!stop) return;
         atgToggleRouteStop(stop.dataset.location, stop);
     });
@@ -409,9 +409,9 @@ function atgGetRouteOrderedLocations() {
 }
 
 function buildAtgRouteMap() {
-    if (document.querySelector('form[data-form-id="31192"] .atg-route-map')) return; // already built
+    if (document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map')) return; // already built
 
-    const repeaterField = document.querySelector('form[data-form-id="31192"] [data-field-name="Itinerary"]');
+    const repeaterField = document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"]');
     if (!repeaterField) return;
 
     const fieldWrap = repeaterField.closest('.jet-form-builder__field-wrap') || repeaterField.parentElement;
@@ -458,7 +458,7 @@ function buildAtgRouteMap() {
     // rebuild triggered by toggling a *different* stop. Delegated + scoped to
     // this repeater so it keeps working across rebuilds without re-binding.
     document.addEventListener('change', function(e) {
-        const hotelSelect = e.target.closest('form[data-form-id="31192"] [data-field-name="Itinerary"] select[name*="[hotel_name]"]');
+        const hotelSelect = e.target.closest('form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] select[name*="[hotel_name]"]');
         if (!hotelSelect) return;
         const row = hotelSelect.closest('.jet-form-builder-repeater__row');
         const locSelect = row ? row.querySelector('select[name*="[hotel_location]"]') : null;
@@ -469,7 +469,7 @@ function buildAtgRouteMap() {
     });
 
     document.addEventListener('input', function(e) {
-        const nightsInput = e.target.closest('form[data-form-id="31192"] [data-field-name="Itinerary"] input[name*="[nights_at_this_hotel]"]');
+        const nightsInput = e.target.closest('form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] input[name*="[nights_at_this_hotel]"]');
         if (!nightsInput) return;
         const row = nightsInput.closest('.jet-form-builder-repeater__row');
         const locSelect = row ? row.querySelector('select[name*="[hotel_location]"]') : null;
@@ -508,7 +508,7 @@ function atgResetCustomizeItinerary() {
     atgItinerarySelected.clear();
     atgItineraryStopData.clear();
 
-    document.querySelectorAll('form[data-form-id="31192"] .atg-route-map__stop.selected').forEach(function(stop) {
+    document.querySelectorAll('form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop.selected').forEach(function(stop) {
         stop.classList.remove('selected');
     });
 
@@ -524,7 +524,7 @@ function atgResetCustomizeItinerary() {
 window.atgResetCustomizeItinerary = atgResetCustomizeItinerary;
 
 function atgSyncNextButtonVisibility() {
-    const itineraryField = document.querySelector('form[data-form-id="31192"] [data-field-name="Itinerary"]');
+    const itineraryField = document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"]');
     const page = itineraryField ? itineraryField.closest('.jet-form-builder-page') : null;
     const nextBtn = page ? page.querySelector('.jet-form-builder__next-page') : null;
     if (!nextBtn) return;
@@ -573,14 +573,14 @@ async function atgWaitFor(conditionFn, timeoutMs, intervalMs) {
 }
 
 async function atgRebuildItineraryRows() {
-    const formSelector = 'form[data-form-id="31192"] [data-field-name="Itinerary"]';
+    const formSelector = 'form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"]';
     const rowSelector = formSelector + ' .jet-form-builder-repeater__row';
 
     // Hide the rows and show a loader for the duration of the rebuild -
     // without this the customer sees every row vanish and then reappear one
     // at a time as we tear the repeater down and rebuild it.
     const repeaterField = document.querySelector(formSelector);
-    const loader = document.querySelector('form[data-form-id="31192"] .atg-itinerary-loader');
+    const loader = document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-itinerary-loader');
     const itemsContainer = document.querySelector(formSelector + ' .jet-form-builder-repeater__items');
 
     // Reserve the rows' current height on the loader before hiding them, so
@@ -618,7 +618,7 @@ async function atgRebuildItineraryRows() {
     });
 
     for (const location of orderedSelected) {
-        const addBtn = document.querySelector('form[data-form-id="31192"] .jet-form-builder-repeater__new');
+        const addBtn = document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new');
         if (!addBtn) break;
 
         const beforeCount = document.querySelectorAll(rowSelector).length;
@@ -706,7 +706,7 @@ function atgUpdateLocationLabels(orderedSelected) {
 
     const css = orderedSelected.map(function(location, index) {
         const safeLocation = location.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        return 'form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row[data-index="' + index + '"] .location-display::before { content: "' + safeLocation + '" !important; }';
+        return 'form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__row[data-index="' + index + '"] .location-display::before { content: "' + safeLocation + '" !important; }';
     }).join('\n');
 
     styleEl.textContent = css;
@@ -723,9 +723,9 @@ function atgUpdateLocationLabels(orderedSelected) {
  * even with rows present.
  */
 function syncItineraryRemoveButtonVisibility() {
-    const removeBtn = document.querySelector('form[data-form-id="31192"] .jet-itinerary-remove-btn');
+    const removeBtn = document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn');
     if (!removeBtn) return;
-    const rows = document.querySelectorAll('form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row');
+    const rows = document.querySelectorAll('form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__row');
     removeBtn.style.display = rows.length > 0 ? 'flex' : 'none';
 }
 
@@ -747,7 +747,7 @@ function setupItineraryAddRemoveButtons() {
     const PLUS_ICON = '<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display:block;height:18px;max-width:100%;"><path d="M13.7 2.3C12.1.8 10.1 0 8 0S3.9.8 2.3 2.3 0 5.9 0 8s.8 4.1 2.3 5.7S5.9 16 8 16s4.1-.8 5.7-2.3S16 10.1 16 8s-.8-4.1-2.3-5.7zM8 14.8c-3.7 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3.1 6.8-6.8 6.8zm.6-7.4h2.8v1.2H8.6v2.8H7.4V8.6H4.6V7.4h2.8V4.6h1.2v2.8z"></path></svg>';
     const MINUS_ICON = '<svg class="wsf-section-icon" focusable="false" viewBox="0 0 16 16" style="display:block;height:18px;max-width:100%;"><path d="M8 16c-2.1 0-4.1-.8-5.7-2.3S0 10.1 0 8s.8-4.1 2.3-5.7S5.9 0 8 0s4.1.8 5.7 2.3S16 5.9 16 8s-.8 4.1-2.3 5.7S10.1 16 8 16zM8 1.2c-3.7 0-6.8 3-6.8 6.8s3 6.8 6.8 6.8 6.8-3 6.8-6.8S11.7 1.2 8 1.2zm3.4 6.2H4.6v1.2h6.9V7.4z"></path></svg>';
 
-    const addBtn = document.querySelector('form[data-form-id="31192"] .jet-form-builder-repeater__new');
+    const addBtn = document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new');
     if (!addBtn || addBtn.dataset.atgIconAdded) return;
     addBtn.dataset.atgIconAdded = '1';
 
@@ -765,7 +765,7 @@ function setupItineraryAddRemoveButtons() {
     actionsBar.appendChild(removeBtn);
 
     removeBtn.addEventListener('click', function() {
-        const rows = document.querySelectorAll('form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row');
+        const rows = document.querySelectorAll('form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__row');
         const lastRow = rows[rows.length - 1];
         if (!lastRow) return;
         // Delegate the actual removal to JetFormBuilder's own (hidden) per-row

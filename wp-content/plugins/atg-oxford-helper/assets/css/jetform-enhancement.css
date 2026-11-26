@@ -121,7 +121,7 @@ body span.flatpickr-day
    use for the Subtotal field either - hide it there only (the main booking
    form still needs it). Matches both the main room and any additional
    rooms, same reasoning as the number_of_passenger rule above. */
-form[data-form-id="31192"] .room_main .wp-block-column:has([data-update-field-name="sub_total"]) {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .room_main .wp-block-column:has([data-update-field-name="sub_total"]) {
     display: none !important;
 }
 .room_main h3 {
@@ -475,22 +475,22 @@ textarea[name="full_address"].jet-form-builder__field.textarea-field{
    The per-row "x" is hidden entirely - setupItineraryAddRemoveButtons() in
    tour-data-reader.js adds a single shared "Remove" button (.jet-itinerary-remove-btn)
    that removes the last-added row, mirroring "Remove Room" exactly. */
-form[data-form-id="31192"] .jet-form-builder-repeater__row-remove {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__row-remove {
     display: none !important;
 }
 
-form[data-form-id="31192"] .jet-form-builder-repeater__actions {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__actions {
     display: flex;
     gap: 10px;
 }
 
-form[data-form-id="31192"] .jet-form-builder-repeater__new svg path,
-form[data-form-id="31192"] .jet-itinerary-remove-btn svg path {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new svg path,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn svg path {
     fill: #fff;
 }
 
-form[data-form-id="31192"] .jet-form-builder-repeater__new,
-form[data-form-id="31192"] .jet-itinerary-remove-btn {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn {
     border-radius: 5px;
     padding: 10px 20px;
     display: flex;
@@ -507,14 +507,14 @@ form[data-form-id="31192"] .jet-itinerary-remove-btn {
 /* On hover, invert to a white background so the icon needs to switch from
    white to dark to stay visible against it (otherwise a white icon on a
    white background disappears). */
-form[data-form-id="31192"] .jet-form-builder-repeater__new:hover,
-form[data-form-id="31192"] .jet-itinerary-remove-btn:hover {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new:hover,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn:hover {
     background-color: #fff;
     color: #343E46;
 }
 
-form[data-form-id="31192"] .jet-form-builder-repeater__new:hover svg path,
-form[data-form-id="31192"] .jet-itinerary-remove-btn:hover svg path {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new:hover svg path,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn:hover svg path {
     fill: #343E46;
 }
 
@@ -522,20 +522,20 @@ form[data-form-id="31192"] .jet-itinerary-remove-btn:hover svg path {
    should just settle back to the normal dark state, not get stuck showing a
    browser default focus/active style. :not(:hover) so the hover state above
    still wins while the mouse is actually over the button. */
-form[data-form-id="31192"] .jet-form-builder-repeater__new:active:not(:hover),
-form[data-form-id="31192"] .jet-itinerary-remove-btn:active:not(:hover),
-form[data-form-id="31192"] .jet-form-builder-repeater__new:focus:not(:hover),
-form[data-form-id="31192"] .jet-itinerary-remove-btn:focus:not(:hover) {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new:active:not(:hover),
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn:active:not(:hover),
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new:focus:not(:hover),
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn:focus:not(:hover) {
     background-color: #343E46;
     color: #fff;
     outline: none;
     box-shadow: none;
 }
 
-form[data-form-id="31192"] .jet-form-builder-repeater__new:active:not(:hover) svg path,
-form[data-form-id="31192"] .jet-itinerary-remove-btn:active:not(:hover) svg path,
-form[data-form-id="31192"] .jet-form-builder-repeater__new:focus:not(:hover) svg path,
-form[data-form-id="31192"] .jet-itinerary-remove-btn:focus:not(:hover) svg path {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new:active:not(:hover) svg path,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn:active:not(:hover) svg path,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-form-builder-repeater__new:focus:not(:hover) svg path,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .jet-itinerary-remove-btn:focus:not(:hover) svg path {
     fill: #fff;
 }
 
@@ -547,7 +547,7 @@ form[data-form-id="31192"] .jet-itinerary-remove-btn:focus:not(:hover) svg path 
    add/remove bar still exists in the DOM (rebuild logic drives it
    programmatically) but is hidden from the customer.
    ============================================================ */
-form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__actions {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__actions {
     display: none !important;
 }
 
@@ -555,14 +555,14 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
    wrapping row of buttons, so it's responsive for free (the browser just
    wraps it, no JS layout math needed regardless of how many stops a tour
    has). The number is the fixed route order; the label is the place name. */
-form[data-form-id="31192"] .atg-route-map {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map {
     display: flex;
     flex-wrap: wrap;
     gap: 18px 14px;
     margin-bottom: 20px;
 }
 
-form[data-form-id="31192"] .atg-route-map__stop {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -580,16 +580,16 @@ form[data-form-id="31192"] .atg-route-map__stop {
 /* Reset the site's generic button:hover/:focus styling (a background/box
    appears around any <button> by default) - the bubble + label lighting up
    is the only hover feedback we want here. */
-form[data-form-id="31192"] .atg-route-map__stop:hover,
-form[data-form-id="31192"] .atg-route-map__stop:focus,
-form[data-form-id="31192"] .atg-route-map__stop:active {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop:hover,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop:focus,
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop:active {
     background: none !important;
     border: none !important;
     outline: none !important;
     box-shadow: none !important;
 }
 
-form[data-form-id="31192"] .atg-route-map__number {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__number {
     width: 34px;
     height: 34px;
     border-radius: 50%;
@@ -604,7 +604,7 @@ form[data-form-id="31192"] .atg-route-map__number {
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
-form[data-form-id="31192"] .atg-route-map__label {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__label {
     font-size: 13px;
     font-weight: 500;
     color: #6b7580;
@@ -615,23 +615,23 @@ form[data-form-id="31192"] .atg-route-map__label {
 
 /* Hover lights the stop up the same way selecting it would (rather than a
    background box), so hovering previews what clicking will do. */
-form[data-form-id="31192"] .atg-route-map__stop:hover .atg-route-map__number {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop:hover .atg-route-map__number {
     border-color: #FF6D00;
     box-shadow: 0 0 0 4px rgba(255, 109, 0, 0.15);
 }
 
-form[data-form-id="31192"] .atg-route-map__stop:hover .atg-route-map__label {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop:hover .atg-route-map__label {
     color: #2c3e50;
 }
 
-form[data-form-id="31192"] .atg-route-map__stop.selected .atg-route-map__number {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop.selected .atg-route-map__number {
     background-color: #FF6D00;
     border-color: #FF6D00;
     color: #fff;
     box-shadow: 0 0 0 4px rgba(255, 109, 0, 0.15);
 }
 
-form[data-form-id="31192"] .atg-route-map__stop.selected .atg-route-map__label {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-route-map__stop.selected .atg-route-map__label {
     color: #2c3e50;
     font-weight: 700;
 }
@@ -639,7 +639,7 @@ form[data-form-id="31192"] .atg-route-map__stop.selected .atg-route-map__label {
 /* Location select is now set by the route map, not typed/chosen manually -
    keep it enabled (so its value still submits) but visually + functionally
    locked so the customer can't override it out of sync with the map. */
-form[data-form-id="31192"] [data-field-name="Itinerary"] select[name*="[hotel_location]"] {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] select[name*="[hotel_location]"] {
     pointer-events: none;
     background-color: #f2f4f6;
 }
@@ -649,11 +649,11 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] select[name*="[hotel_lo
    instead of the customer seeing rows disappear and pop back in one at a
    time. The rows are hidden (not removed) so the popup doesn't jump/resize
    more than necessary while this is up. */
-form[data-form-id="31192"] [data-field-name="Itinerary"].atg-rebuilding .jet-form-builder-repeater__items {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"].atg-rebuilding .jet-form-builder-repeater__items {
     display: none;
 }
 
-form[data-form-id="31192"] .atg-itinerary-loader {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-itinerary-loader {
     display: none;
     align-items: center;
     justify-content: center;
@@ -663,11 +663,11 @@ form[data-form-id="31192"] .atg-itinerary-loader {
     font-size: 14px;
 }
 
-form[data-form-id="31192"] .atg-itinerary-loader.active {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-itinerary-loader.active {
     display: flex;
 }
 
-form[data-form-id="31192"] .atg-itinerary-loader__spinner {
+form:is([data-form-id="31192"], [data-form-id="35363"]) .atg-itinerary-loader__spinner {
     width: 18px;
     height: 18px;
     border: 2px solid #dae3eb;
@@ -685,7 +685,7 @@ form[data-form-id="31192"] .atg-itinerary-loader__spinner {
    columns block, leaving just Hotel there. Nights normally renders as its
    own full-width block below; make the row-fields container a flex row so
    Hotel and Nights sit side by side where Location used to be. */
-form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields {
     display: flex;
     align-items: flex-end;
     flex-wrap: wrap;
@@ -696,7 +696,7 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
    direct child of .row-fields, sitting alongside Hotel/Nights once that's a
    flex row - force it to take the full width so it wraps onto its own line
    above them instead of competing for horizontal space. */
-form[data-form-id="31192"] [data-field-name="Itinerary"] .location-display {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .location-display {
     flex: 1 1 100%;
 }
 
@@ -704,20 +704,20 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .location-display {
    "Location N" -> place-name ::before content, see atgUpdateLocationLabels()
    in tour-data-reader.js) gives this heading a 20px margin-bottom - that's
    the big gap between the location title and the Hotel/Nights row below it. */
-form[data-form-id="31192"] [data-field-name="Itinerary"] .location-display::before {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .location-display::before {
     margin-bottom: 4px !important;
 }
 
-form[data-form-id="31192"] [data-field-name="Itinerary"] .wp-block-columns > .wp-block-column:first-child {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .wp-block-columns > .wp-block-column:first-child {
     display: none !important;
 }
 
-form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .wp-block-columns {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .wp-block-columns {
     flex: 1 1 55%;
     margin: 0 !important;
 }
 
-form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .jet-sm-gb-wrapper {
+form:is([data-form-id="31192"], [data-form-id="35363"]) [data-field-name="Itinerary"] .jet-form-builder-repeater__row-fields > .jet-sm-gb-wrapper {
     flex: 1 1 35%;
 }
 
@@ -779,3 +779,103 @@ form[data-form-id="31192"] [data-field-name="Itinerary"] .jet-form-builder-repea
 .elementor-popup-modal.atg-compact-popup-overlay {
     align-items: center !important;
 }
+/* ---------------------------------------------------------------------------
+   Form look parity (2026-11): on the real staging site the Elementor Kit /
+   JetFormBuilder defaults restyle the booking and customise popups (bigger
+   headings, no label margins, square oversized Add/Remove Room buttons).
+   These rules pin the approved look so it is identical on every site.
+   Scoped to the Elementor popups that hold our two forms.
+   ------------------------------------------------------------------------- */
+.elementor-popup-modal .jet-form-builder__label-text {
+    margin: 0 0 5px !important;
+}
+.elementor-popup-modal .atg-passenger-count-field {
+    padding: 5px 0 0;
+}
+.elementor-popup-modal h4.atg-room-details-title,
+.elementor-popup-modal h4.wp-block-heading.atg-room-details-title {
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    line-height: 1.165 !important;
+    margin: 10px 0 20px !important;
+}
+.elementor-popup-modal h4.room-number-label {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    line-height: 1.165 !important;
+}
+.elementor-popup-modal .additional-room-buttons {
+    margin: 10px 0 0 !important;
+}
+.elementor-popup-modal button.add-room-btn,
+.elementor-popup-modal button.remove-room-btn {
+    padding: 10px 20px !important;
+    border-radius: 5px !important;
+}
+.elementor-popup-modal .add-room-btn__label,
+.elementor-popup-modal .remove-room-btn__label {
+    color: inherit;
+}
+.elementor-popup-modal .atg-passenger-count-field .jet-form-builder__label {
+    margin: 0 0 5px !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Form CSS formerly kept in Appearance > Customize > Additional CSS on the dev
+   staging site (wpcomstaging). It was never copied to REAL STAGING, which is why
+   the Add Room button/icon, extra-room layout and review page looked broken
+   there. Shipping it in the plugin makes every site identical.
+   ------------------------------------------------------------------------- */
+
+/* Booking / customise popups sit in the vertical middle (Elementor popup
+   settings default to "bottom" on real staging). */
+#elementor-popup-modal-17925,
+#elementor-popup-modal-31105 {
+    align-items: center !important;
+}
+
+body .atg-passenger-details { flex-wrap: wrap !important; margin-top: 10px; }
+body .atg-passenger-details .room_main .jet-sm-gb-wrapper { margin: 0; }
+body .additional-room-details-container .jet-sm-gb-wrapper { margin: 0; }
+.atg-room-details-title { margin-top: 10px; }
+.atg-passenger-count-field { padding-top: 5px; }
+.atg-passenger-count-field .jet-form-builder__label { margin-bottom: 5px; }
+body .room_main { margin-block-start: 6px; }
+.jet-form-builder__label-text { margin-bottom: 5px; }
+body .atg-passenger-details .passenger-details-container h4 { font-size: 16px !important; }
+body .atg-passenger-details .passenger-details-container .jet-form-col { padding: 0 !important; }
+body .additionalfields .wp-block-column .room_main { margin-top: 20px; gap: 10px; flex-direction: column; }
+body .additionalfields .passenger-details-container h4 { font-size: 16px !important; }
+body .additionalfields .passenger-details-container .passenger-section .jet-form-col { padding: 0 !important; }
+.additional-room-buttons { display: flex; gap: 10px; margin-block-start: 10px !important; }
+.additional-room-buttons button { display: flex; flex-direction: row; gap: 10px; padding: 10px 20px; border-radius: 5px; }
+.additional-room-buttons button:hover { border-radius: 5px; }
+.additional-room-buttons button:focus { border-radius: 5px; }
+.additional-room-buttons button span { color: white; }
+.additional-room-buttons button svg { fill: white; }
+.additional-room-buttons button:hover span { color: #2c3e50; }
+.additional-room-buttons button:focus span { color: #2c3e50; }
+.additional-room-buttons button:hover svg { fill: #2c3e50; }
+.additional-room-buttons button:focus svg { fill: #2c3e50; }
+.atg-lead-name-details { padding: 24px; background: #f6f8fb; border-radius: 10px; border: 1px solid #dae3eb; margin-bottom: 20px; }
+.atg-lead-name-details .wp-block-columns .wp-block-column .jet-sm-gb-wrapper { margin-top: 0; }
+.atg-lead-name-details .wp-block-columns { margin-block-start: 8px; }
+.summary-wrapper { display: flex; flex-direction: row; flex-wrap: wrap; gap: 20px; }
+.summary-inner-wrapper { flex: 1; min-width: 300px; display: flex; }
+.summary-holiday-details .summary-container, .summary-lead-passenger .summary-container { flex-grow: 1; }
+.summary-container { display: flex; flex-direction: column; border: 1px solid #dae3eb; border-radius: 5px; padding: 15px; background: #f6f8fb; gap: 8px; }
+.summary-room-details-container { display: flex; flex-direction: column; gap: 8px; padding: 15px; border-radius: 10px; border: 1px solid #eee; background: white; margin-bottom: 8px; }
+.summary-room-details, .summary-additional-requests { margin-top: 20px; }
+.summary-title { margin-bottom: 12px; font-size: 16px; font-weight: bold; color: #2c3e50; border-bottom: 1px solid rgba(1, 56, 45, 0.5); padding-bottom: 5px; }
+.custom-block-review-page { margin-bottom: 20px !important; }
+.atg-acceptance-toc { margin-top: 20px !important; margin-bottom: 20px !important; }
+.atg-acceptance-toc .jet-sm-gb-wrapper { margin-block-start: 0 !important; }
+.jfb-progress-type--default .jet-form-builder-progress-pages__item--label { display: none; }
+.booking-summary { width: 800px; max-width: 100%; margin: 0 auto; }
+.booking-summary .summary-btn { text-align: center; }
+/* Thank-you page: breathing room between header/footer and the summary, logo centred */
+.booking-summary { margin: 50px auto 60px; padding: 0 15px; box-sizing: border-box; }
+.booking-summary .summary-logo-wrapper { text-align: center; margin-bottom: 15px; }
+.booking-summary .summary-logo-wrapper img.booking-summary-logo { display: inline-block; margin: 0 auto; }
+.booking-summary .summary-btn { margin-top: 20px; }
+.atg-itinerary { display: none; }

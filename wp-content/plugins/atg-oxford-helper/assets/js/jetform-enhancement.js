@@ -1,3 +1,12 @@
+// Form IDs differ per site: wpcomstaging (31190 booking / 31192 customise) and REAL
+// STAGING (35362 booking / 35363 customise). Both are supported - keep these lists,
+// the PHP ones in includes/frontend-data.php and the selectors in the CSS in sync.
+window.ATG_BOOKING_FORM_IDS = ['31190', '35362'];
+window.ATG_CUSTOMISE_FORM_IDS = ['31192', '35363'];
+window.atgIsCustomiseForm = function(id) {
+    return window.ATG_CUSTOMISE_FORM_IDS.indexOf(String(id)) !== -1;
+};
+
 document.addEventListener('DOMContentLoaded', function () {
 
     // Adjust the selector if your repeater wrapper has a custom class
@@ -106,7 +115,7 @@ document.addEventListener('change', function(e) {
 // open or forms are injected later.
 function atgRelabelSubmitButtons() {
     document.querySelectorAll('form.jet-form-builder').forEach(function(form) {
-        if (form.dataset.formId === '31192') {
+        if (window.atgIsCustomiseForm(form.dataset.formId)) {
             return;
         }
         form.querySelectorAll('.jet-form-builder__submit').forEach(function(submitBtn) {
@@ -923,7 +932,7 @@ document.addEventListener("DOMContentLoaded", function () {
 	
 	jQuery(document).ready(function($) {
     	function updateRepeaterHeadings() {
-        	$('#jet-form-builder__form-31192 .jet-form-builder-repeater__item').each(function(index) {
+        	$('#jet-form-builder__form-31192 .jet-form-builder-repeater__item, #jet-form-builder__form-35363 .jet-form-builder-repeater__item').each(function(index) {
             	var $item = $(this);
             	var locationNumber = index + 1;
             	var $heading = $item.find('.location-heading');
@@ -1184,7 +1193,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // the three base room types, labelled with no price suffix. The main
         // booking form (31190) keeps both, unchanged.
         const roomFormEl = roomSelect.closest('form[data-form-id]');
-        const isCustomizeForm = !!roomFormEl && roomFormEl.dataset.formId === '31192';
+        const isCustomizeForm = !!roomFormEl && window.atgIsCustomiseForm(roomFormEl.dataset.formId);
 
         roomSelect.innerHTML = '<option value="" selected disabled>Select Room</option>';
 
@@ -2030,7 +2039,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // step consistent with them. See atgResetCustomizeItinerary() in
         // tour-data-reader.js for why this needs its own reset (the popup's
         // content isn't actually destroyed when hidden).
-        if (typeof window.atgResetCustomizeItinerary === 'function' && document.querySelector('form[data-form-id="31192"]')) {
+        if (typeof window.atgResetCustomizeItinerary === 'function' && document.querySelector('form:is([data-form-id="31192"], [data-form-id="35363"])')) {
             window.atgResetCustomizeItinerary();
         }
 
@@ -3033,7 +3042,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // The customise-itinerary form (31192) doesn't take payment, so its
         // review page shouldn't show a Subtotal line under Room Details.
-        const isCustomizeForm = form.dataset.formId === '31192';
+        const isCustomizeForm = window.atgIsCustomiseForm(form.dataset.formId);
 
         const formData = new FormData(form);
         const values = {};
@@ -3538,7 +3547,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (window.jQuery) {
         jQuery(document).on('jet-form-builder/ajax/on-success', function(e, response, $rootNode) {
             const formEl = $rootNode && $rootNode[0];
-            if (formEl && formEl.dataset && formEl.dataset.formId === '31192') {
+            if (formEl && formEl.dataset && window.atgIsCustomiseForm(formEl.dataset.formId)) {
                 Array.from(formEl.children).forEach(function(child) {
                     if (!child.classList.contains('jet-form-builder-messages-wrap')) {
                         child.style.display = 'none';

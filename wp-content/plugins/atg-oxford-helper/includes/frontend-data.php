@@ -1,4 +1,31 @@
 <?php
+
+/**
+ * Form IDs differ per site: wpcomstaging has booking 31190 / customise 31192, REAL
+ * STAGING has 35362 / 35363. Both are supported so one codebase works everywhere.
+ * Keep in sync with window.ATG_*_FORM_IDS in jetform-enhancement.js and the
+ * [data-form-id] selectors in jetform-enhancement.css / tour-data-reader.js.
+ */
+if ( ! function_exists( 'atg_booking_form_ids' ) ) {
+    function atg_booking_form_ids() {
+        return array( 31190, 35362 );
+    }
+    function atg_customise_form_ids() {
+        return array( 31192, 35363 );
+    }
+    function atg_is_customise_form_id( $id ) {
+        return in_array( (int) $id, atg_customise_form_ids(), true );
+    }
+    // The booking form that actually exists on this site (falls back to the first ID).
+    function atg_booking_form_id() {
+        foreach ( atg_booking_form_ids() as $id ) {
+            if ( get_post_type( $id ) === 'jet-form-builder' ) {
+                return $id;
+            }
+        }
+        return atg_booking_form_ids()[0];
+    }
+}
 /**
  * Frontend Data for Tour Pages
  * Adds hidden JSON data to tour post type pages
@@ -1535,25 +1562,35 @@ function atg_build_confirmation_email_content( $greeting, $headline, $trip_name,
         $note_closing_line = '';
     }
 
-    $html = '<p style="margin:0 0 16px;font-size:15px;">' . $greeting . '</p>'
-        . '<h2 style="margin:0 0 6px;font-size:18px;color:' . ATG_EMAIL_DARK . ';font-weight:700;line-height:1.4;">' . $headline . '</h2>'
-        . '<h4 style="margin:0 0 24px;font-size:15px;color:' . ATG_EMAIL_ACCENT . ';font-weight:700;">' . esc_html( $trip_name ) . '</h4>'
-        . atg_render_booking_detail_boxes_email( $fields, $show_pricing );
+    $team_name = ! empty( $settings['atg_footer_team_name'] ) ? $settings['atg_footer_team_name'] : 'ATG Reservations';
+
+    $html = '';
+
+    // Client email only: greeting + headline (no orange "Book <trip>" line - the
+    // trip name is already in Holiday Details). The staff email (trip-enquiry)
+    // starts straight at the details, with no greeting/headline.
+    if ( ! $is_internal ) {
+        $html .= '<p style="margin:0 0 16px;font-size:15px;">' . $greeting . '</p>'
+            . '<h2 style="margin:0 0 24px;font-size:18px;color:' . ATG_EMAIL_DARK . ';font-weight:700;line-height:1.4;">' . $headline . '</h2>';
+    }
+
+    $html .= atg_render_booking_detail_boxes_email( $fields, $show_pricing );
 
     if ( $is_internal ) {
         $html .= atg_render_staff_only_booking_info_email( $fields, $ref );
+        // No closing note / sign-off on the staff email.
+        return $html;
     }
 
-    if ( $note_message !== '' || $note_closing_line !== '' ) {
-        $html .= '<div style="margin-top:8px;padding-top:20px;border-top:1px solid ' . ATG_EMAIL_BORDER . ';font-size:13px;color:' . ATG_EMAIL_MUTED . ';line-height:1.6;">';
-        if ( $note_message !== '' ) {
-            $html .= '<p style="margin:0 0 10px;">' . nl2br( esc_html( $note_message ) ) . '</p>';
-        }
-        if ( $note_closing_line !== '' ) {
-            $html .= '<p style="margin:0;font-weight:700;color:' . ATG_EMAIL_TEXT . ';">' . esc_html( $note_closing_line ) . '</p>';
-        }
-        $html .= '</div>';
+    $html .= '<div style="margin-top:8px;padding-top:20px;border-top:1px solid ' . ATG_EMAIL_BORDER . ';font-size:13px;color:' . ATG_EMAIL_MUTED . ';line-height:1.6;">';
+    if ( $note_message !== '' ) {
+        $html .= '<p style="margin:0 0 10px;">' . nl2br( esc_html( $note_message ) ) . '</p>';
     }
+    if ( $note_closing_line !== '' ) {
+        $html .= '<p style="margin:0 0 10px;color:' . ATG_EMAIL_TEXT . ';">' . esc_html( $note_closing_line ) . '</p>';
+    }
+    $html .= '<p style="margin:0;color:' . ATG_EMAIL_TEXT . ';">Best wishes,<br>' . esc_html( $team_name ) . '</p>';
+    $html .= '</div>';
 
     return $html;
 }
@@ -1638,7 +1675,7 @@ function booking_summary_shortcode() {
     }
 
     $email = isset($get_fields['email']) ? sanitize_email($get_fields['email']) : '';
-    $submission = $email ? atg_get_latest_jetformbuilder_submission_by_email(31190, $email) : array();
+    $submission = $email ? atg_get_latest_jetformbuilder_submission_by_email(atg_booking_form_id(), $email) : array();
     $fields = !empty($submission) ? array_merge($get_fields, $submission) : $get_fields;
 
     if (empty($fields)) {
@@ -1660,7 +1697,7 @@ function booking_summary_shortcode() {
     // Send the confirmation emails (once per record) using its own full submission data.
     if ($email) {
         $fields_table = $wpdb->prefix . 'jet_fb_records_fields';
-        $results = get_jetformbuilder_no_notification_records_by_email(31190, $email);
+        $results = get_jetformbuilder_no_notification_records_by_email(atg_booking_form_id(), $email);
         foreach ($results as $result) {
             $ref = $result['id']; // DB record ID, used as the booking reference
 
@@ -1708,7 +1745,7 @@ function booking_summary_shortcode() {
             // jetform-enhancement.css, so the .summary-* classes used by
             // atg_render_booking_detail_boxes() render unstyled in an inbox -
             // see atg_build_confirmation_email()/atg_build_confirmation_email_content()).
-            $email_headline = 'Thank you for your deposit of <span style="color:' . ATG_EMAIL_ACCENT . ';font-weight:700;">' . $emailDeposit . '</span>, your booking is now being processed by our Reservations Team.';
+            $email_headline = 'Thank you for your deposit of ' . $emailDeposit . ', your booking is now being processed by our Reservations Team.';
             $email_trip_heading = 'Book ' . $tour_name;
 
             $emailContentCustomer = atg_build_confirmation_email(
@@ -2094,7 +2131,7 @@ add_action( 'jet-form-builder/form-handler/before-send', function( $form_handler
     if ( ! is_object( $form_handler ) || ! method_exists( $form_handler, 'get_form_id' ) ) {
         return;
     }
-    if ( (int) $form_handler->get_form_id() !== 31192 ) {
+    if ( ! atg_is_customise_form_id( $form_handler->get_form_id() ) ) {
         return;
     }
     if ( isset( $form_handler->action_handler ) && method_exists( $form_handler->action_handler, 'unregister_action' ) ) {
@@ -2241,7 +2278,7 @@ add_action( 'init', function() {
  * lock 31190 needs doesn't apply here.
  */
 add_action( 'jet-form-builder/form-record/save-record-action', function( $record_id, $request ) {
-    if ( ! is_array( $request ) || (int) ( $request['__form_id'] ?? 0 ) !== 31192 ) {
+    if ( ! is_array( $request ) || ! atg_is_customise_form_id( $request['__form_id'] ?? 0 ) ) {
         return;
     }
 
